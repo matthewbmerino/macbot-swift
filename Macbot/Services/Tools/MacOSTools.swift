@@ -116,11 +116,29 @@ enum MacOSTools {
 
     static func takeScreenshot() async -> String {
         let path = "/tmp/macbot_screenshot.png"
-        let result = runShell("screencapture -x \(path)")
-        if result != nil {
-            return "Screenshot captured\n[IMAGE:\(path)]"
+        let url = URL(fileURLWithPath: path)
+
+        // Use native CGWindowListCreateImage — avoids repeated permission prompts
+        guard let image = CGWindowListCreateImage(
+            CGRect.null,  // null = entire display
+            .optionOnScreenOnly,
+            kCGNullWindowID,
+            [.bestResolution]
+        ) else {
+            return "Error: screenshot failed — grant Screen Recording permission in System Settings > Privacy & Security"
         }
-        return "Error: screenshot failed"
+
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            return "Error: failed to encode screenshot"
+        }
+
+        do {
+            try pngData.write(to: url)
+            return "Screenshot captured\n[IMAGE:\(path)]"
+        } catch {
+            return "Error: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Helpers
