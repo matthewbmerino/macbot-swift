@@ -206,10 +206,26 @@ final class Orchestrator {
             agent.memoryStore = memoryStore
         }
 
-        // Register memory tools on general + coder
+        // Register tools on general + coder (full tool set)
         for category in [AgentCategory.general, .coder] {
             if let agent = conv.agents[category] {
                 registerMemoryTools(on: agent)
+                Task {
+                    await FileTools.register(on: agent.toolRegistry)
+                    await WebTools.register(on: agent.toolRegistry)
+                    await MacOSTools.register(on: agent.toolRegistry)
+                    await ExecutorTools.register(on: agent.toolRegistry)
+                }
+            }
+        }
+
+        // Vision + reasoner get lighter tools
+        for category in [AgentCategory.vision, .reasoner] {
+            if let agent = conv.agents[category] {
+                Task {
+                    await WebTools.register(on: agent.toolRegistry)
+                    await ExecutorTools.register(on: agent.toolRegistry)
+                }
             }
         }
 
