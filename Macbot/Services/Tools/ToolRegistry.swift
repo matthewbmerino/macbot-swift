@@ -28,7 +28,10 @@ actor ToolRegistry {
             return (name, "Unknown tool: \(name)")
         }
 
-        Log.tools.info("Calling tool: \(name)")
+        // Fire pre-tool hook
+        await HookSystem.shared.fireAsync(HookContext.make(
+            event: .toolStart, toolName: name, toolArgs: arguments
+        ))
 
         do {
             let result = try await withThrowingTaskGroup(of: String.self) { group in
@@ -36,22 +39,34 @@ actor ToolRegistry {
                     try await handler(arguments)
                 }
 
-                // Timeout task
                 group.addTask {
                     try await Task.sleep(for: .seconds(Self.toolTimeout))
                     throw ToolError.timeout(name, Self.toolTimeout)
                 }
 
-                // Return whichever finishes first
                 let result = try await group.next()!
                 group.cancelAll()
                 return result
             }
+
+            // Fire post-tool hook
+            await HookSystem.shared.fireAsync(HookContext.make(
+                event: .toolComplete, toolName: name, result: result
+            ))
+
             return (name, result)
         } catch is ToolError {
-            return (name, "Error: tool '\(name)' timed out after \(Int(Self.toolTimeout))s")
+            let err = "Error: tool '\(name)' timed out after \(Int(Self.toolTimeout))s"
+            await HookSystem.shared.fireAsync(HookContext.make(
+                event: .toolError, toolName: name, error: err
+            ))
+            return (name, err)
         } catch {
-            return (name, "Error: \(error.localizedDescription)")
+            let err = "Error: \(error.localizedDescription)"
+            await HookSystem.shared.fireAsync(HookContext.make(
+                event: .toolError, toolName: name, error: err
+            ))
+            return (name, err)
         }
     }
 
