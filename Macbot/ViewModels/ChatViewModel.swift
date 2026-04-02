@@ -196,10 +196,12 @@ final class ChatViewModel {
 
     @MainActor
     private func updateLastAgentMessage(_ text: String, agent: AgentCategory?) {
-        if let last = messages.last, last.role == .assistant {
-            messages[messages.count - 1] = ChatMessage(
-                role: .assistant, content: text, agentCategory: agent
-            )
+        if var last = messages.last, last.role == .assistant {
+            // Preserve existing images when updating text
+            let existingImages = last.images
+            var updated = ChatMessage(role: .assistant, content: text, agentCategory: agent)
+            updated.images = existingImages
+            messages[messages.count - 1] = updated
         } else {
             messages.append(ChatMessage(
                 role: .assistant, content: text, agentCategory: agent
