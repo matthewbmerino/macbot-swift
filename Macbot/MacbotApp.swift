@@ -72,9 +72,7 @@ final class AppState {
     var isReady = false
 
     init() {
-        // Authenticate first, then initialize
         Task {
-            // Wait for auth
             while !authService.isUnlocked {
                 try? await Task.sleep(for: .milliseconds(200))
             }
@@ -90,7 +88,16 @@ final class AppState {
                 self.chatViewModel = vm
                 self.isReady = true
             }
-            Log.app.info("Macbot ready")
+
+            // Set up the quick panel
+            QuickPanelController.shared.orchestrator = orchestrator
+
+            // Register global hotkey: Cmd+Shift+Space
+            HotkeyManager.shared.registerDefaults {
+                QuickPanelController.shared.toggle()
+            }
+
+            Log.app.info("Macbot ready — press Cmd+Shift+Space for quick panel")
 
             Task.detached(priority: .background) { [orchestrator] in
                 await orchestrator.prewarm()
