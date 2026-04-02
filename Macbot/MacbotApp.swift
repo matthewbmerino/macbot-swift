@@ -28,8 +28,8 @@ struct MacbotApp: App {
                 if !appState.authService.isUnlocked {
                     LockScreen(authService: appState.authService)
                 } else if !appState.isReady {
-                    OnboardingView(client: appState.orchestrator.client) {
-                        Task { await appState.initialize() }
+                    OnboardingView(client: appState.client) { config in
+                        Task { await appState.initialize(with: config) }
                     }
                 } else {
                     ChatView(viewModel: appState.chatViewModel!)
@@ -62,8 +62,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @Observable
 final class AppState {
-    let orchestrator = Orchestrator()
+    let client = OllamaClient()
     let authService = AuthService()
+    var orchestrator: Orchestrator?
     var chatViewModel: ChatViewModel?
     var isReady = false
 
@@ -72,32 +73,37 @@ final class AppState {
             while !authService.isUnlocked {
                 try? await Task.sleep(for: .milliseconds(200))
             }
-            await initialize()
+
+            // If setup was done before, load saved config and skip wizard
+            if let savedConfig = ModelConfig.load() {
+                await initialize(with: savedConfig)
+            }
+            // Otherwise, OnboardingView will call initialize(with:) after setup
         }
     }
 
-    func initialize() async {
-        let reachable = await orchestrator.client.isReachable()
-        if reachable {
-            let vm = ChatViewModel(orchestrator: orchestrator)
-            await MainActor.run {
-                self.chatViewModel = vm
-                self.isReady = true
-            }
+    func initialize(with config: ModelConfig) async {
+        let orch = Orchestrator(modelConfig: config)
 
-            // Set up the quick panel
-            QuickPanelController.shared.orchestrator = orchestrator
+        let vm = ChatViewModel(orchestrator: orch)
+        await MainActor.run {
+            self.orchestrator = orch
+            self.chatViewModel = vm
+            self.isReady = true
+        }
 
-            // Register global hotkey: Cmd+Shift+Space
-            HotkeyManager.shared.registerDefaults {
-                QuickPanelController.shared.toggle()
-            }
+        // Quick panel
+        QuickPanelController.shared.orchestrator = orch
 
-            Log.app.info("Macbot ready — press Cmd+Shift+Space for quick panel")
+        // Global hotkey
+        HotkeyManager.shared.registerDefaults {
+            QuickPanelController.shared.toggle()
+        }
 
-            Task.detached(priority: .background) { [orchestrator] in
-                await orchestrator.prewarm()
-            }
+        Log.app.info("Macbot ready with config: general=\(config.general), coder=\(config.coder)")
+
+        Task.detached(priority: .background) {
+            await orch.prewarm()
         }
     }
 }

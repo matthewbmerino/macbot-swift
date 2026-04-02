@@ -2,11 +2,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("ollamaHost") private var ollamaHost = "http://localhost:11434"
-    @AppStorage("generalModel") private var generalModel = "qwen3.5:9b"
-    @AppStorage("coderModel") private var coderModel = "devstral-small-2"
-    @AppStorage("visionModel") private var visionModel = "qwen3-vl:8b"
-    @AppStorage("reasonerModel") private var reasonerModel = "deepseek-r1:14b"
-    @AppStorage("routerModel") private var routerModel = "qwen3.5:0.8b"
 
     var body: some View {
         TabView {
@@ -15,8 +10,11 @@ struct SettingsView: View {
 
             modelsTab
                 .tabItem { Label("Models", systemImage: "cpu") }
+
+            hardwareTab
+                .tabItem { Label("Hardware", systemImage: "desktopcomputer") }
         }
-        .frame(width: 450, height: 300)
+        .frame(width: 480, height: 350)
         .padding()
     }
 
@@ -30,23 +28,39 @@ struct SettingsView: View {
     }
 
     private var modelsTab: some View {
-        Form {
-            Section("Model Assignments") {
-                LabeledContent("General") {
-                    TextField("Model", text: $generalModel).textFieldStyle(.roundedBorder)
+        let config = ModelConfig.load() ?? ModelConfig()
+        return Form {
+            Section("Current Model Assignments") {
+                LabeledContent("General") { Text(config.general).foregroundStyle(.secondary) }
+                LabeledContent("Coder") { Text(config.coder.isEmpty ? "Disabled" : config.coder).foregroundStyle(config.coder.isEmpty ? .orange : .secondary) }
+                LabeledContent("Vision") { Text(config.vision.isEmpty ? "Disabled" : config.vision).foregroundStyle(config.vision.isEmpty ? .orange : .secondary) }
+                LabeledContent("Reasoner") { Text(config.reasoner.isEmpty ? "Disabled" : config.reasoner).foregroundStyle(config.reasoner.isEmpty ? .orange : .secondary) }
+                LabeledContent("Router") { Text(config.router).foregroundStyle(.secondary) }
+            }
+
+            Section {
+                Button("Reconfigure Models") {
+                    // Clear saved config to re-trigger setup wizard on next launch
+                    UserDefaults.standard.removeObject(forKey: "com.macbot.modelConfig")
+                    NSApplication.shared.terminate(nil)
                 }
-                LabeledContent("Coder") {
-                    TextField("Model", text: $coderModel).textFieldStyle(.roundedBorder)
-                }
-                LabeledContent("Vision") {
-                    TextField("Model", text: $visionModel).textFieldStyle(.roundedBorder)
-                }
-                LabeledContent("Reasoner") {
-                    TextField("Model", text: $reasonerModel).textFieldStyle(.roundedBorder)
-                }
-                LabeledContent("Router") {
-                    TextField("Model", text: $routerModel).textFieldStyle(.roundedBorder)
-                }
+                .foregroundStyle(.red)
+
+                Text("This will restart the app and run the setup wizard to detect your hardware and recommend optimal models.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private var hardwareTab: some View {
+        let hw = HardwareDetector.detect()
+        return Form {
+            Section("Detected Hardware") {
+                LabeledContent("Chip") { Text(hw.chipName) }
+                LabeledContent("Memory") { Text(hw.ramDescription) }
+                LabeledContent("Architecture") { Text(hw.architecture) }
+                LabeledContent("Available for AI") { Text("\(String(format: "%.0f", hw.availableForModels))GB") }
             }
         }
     }

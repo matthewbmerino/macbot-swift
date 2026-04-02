@@ -115,6 +115,54 @@ final class OllamaClient: InferenceProvider, @unchecked Sendable {
         }
     }
 
+    // MARK: - Pull Model
+
+    /// Pull a model from Ollama registry. Returns progress updates (0.0 to 1.0).
+    func pullModel(_ model: String) -> AsyncThrowingStream<Double, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let payload: [String: Any] = ["name": model, "stream": true]
+                    let request = try makeRequest("/api/pull", payload: payload)
+                    let (bytes, response) = try await session.bytes(for: request)
+
+                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                        throw OllamaError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
+                    }
+
+                    for try await line in bytes.lines {
+                        guard !line.isEmpty,
+                              let data = line.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                        else { continue }
+
+                        if let total = json["total"] as? Double, total > 0,
+                           let completed = json["completed"] as? Double {
+                            continuation.yield(completed / total)
+                        }
+
+                        if let status = json["status"] as? String, status == "success" {
+                            continuation.yield(1.0)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Check if a specific model is installed.
+    func hasModel(_ name: String) async -> Bool {
+        do {
+            let models = try await listModels()
+            return models.contains { $0.name == name || $0.name.hasPrefix(name + ":") }
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - Warm Model
 
     func warmModel(_ model: String) async throws {
