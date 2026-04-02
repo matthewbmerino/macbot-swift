@@ -292,9 +292,23 @@ class BaseAgent {
                         continuation.yield(.status("Step \(stepCount): \(stepLabel)..."))
 
                         // Execute tools in parallel
+                        let imagePattern = try? NSRegularExpression(pattern: "\\[IMAGE:(.*?)\\]")
                         let results = await toolRegistry.executeAll(toolCalls)
                         for (_, result) in results {
                             appendToHistory(["role": "tool", "content": result])
+
+                            // Extract and yield images from tool results
+                            if let regex = imagePattern {
+                                let range = NSRange(result.startIndex..., in: result)
+                                for match in regex.matches(in: result, range: range) {
+                                    if let pathRange = Range(match.range(at: 1), in: result) {
+                                        let path = String(result[pathRange])
+                                        if let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
+                                            continuation.yield(.image(data, URL(fileURLWithPath: path).lastPathComponent))
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // Status update after tool execution — model is now processing results
