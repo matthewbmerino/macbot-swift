@@ -155,6 +155,11 @@ final class ChatViewModel {
                                 imgs.append(data)
                                 last.images = imgs
                                 messages.append(last)
+                            } else {
+                                // No assistant message yet — create one for the image
+                                var msg = ChatMessage(role: .assistant, content: "", agentCategory: agentCategory)
+                                msg.images = [data]
+                                messages.append(msg)
                             }
                         }
                     }
