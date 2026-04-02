@@ -13,6 +13,48 @@ actor ToolRegistry {
 
     var allSpecs: [ToolSpec] { specs }
 
+    // Tool groups for deterministic pre-filtering
+    private static let toolGroups: [String: (keywords: [String], tools: [String])] = [
+        "finance": (["stock", "price", "market", "ticker", "portfolio", "dow", "nasdaq"], ["get_stock_price", "get_stock_history", "get_market_summary"]),
+        "browser": (["browse", "website", "visit", "go to", "http://", "https://"], ["browse_url", "browse_and_act", "screenshot_url"]),
+        "web": (["search", "look up", "find out", "what is", "who is", "latest", "news"], ["web_search", "fetch_page"]),
+        "files": (["file", "read", "write", "folder", "directory", "create file"], ["read_file", "write_file", "list_directory", "search_files"]),
+        "chart": (["chart", "graph", "plot", "visualize", "diagram"], ["generate_chart"]),
+        "macos": (["screenshot", "clipboard", "open app", "volume", "notification", "what apps", "running apps", "battery", "system info"], ["take_screenshot", "open_app", "open_url", "send_notification", "get_clipboard", "set_clipboard", "list_running_apps", "get_system_info"]),
+        "code": (["run python", "execute", "script", "run code"], ["run_python", "run_command"]),
+        "memory": (["remember", "memory", "recall", "forget", "what do you know"], ["memory_save", "memory_recall", "memory_search", "memory_forget"]),
+    ]
+
+    /// Filter tools to 3-5 relevant ones based on message content.
+    func filteredSpecsAsJSON(for message: String, recentTools: [String] = []) -> [[String: Any]] {
+        let lower = message.lowercased()
+        var matchedNames = Set<String>()
+
+        for (_, group) in Self.toolGroups {
+            if group.keywords.contains(where: { lower.contains($0) }) {
+                matchedNames.formUnion(group.tools)
+            }
+        }
+
+        // Recency bias
+        matchedNames.formUnion(recentTools)
+
+        // Default fallback
+        if matchedNames.isEmpty {
+            matchedNames = ["web_search", "memory_recall", "run_command"]
+        }
+
+        let filtered = specs.filter { matchedNames.contains($0.function.name) }
+        let toEncode = filtered.isEmpty ? Array(specs.prefix(5)) : filtered
+
+        return toEncode.compactMap { spec in
+            guard let data = try? JSONEncoder().encode(spec),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            return json
+        }
+    }
+
     /// Specs as Ollama-compatible JSON array.
     var specsAsJSON: [[String: Any]] {
         specs.compactMap { spec in

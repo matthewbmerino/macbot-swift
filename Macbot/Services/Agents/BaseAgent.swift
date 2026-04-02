@@ -186,7 +186,8 @@ class BaseAgent {
 
         if plan { _ = await generatePlan(input) }
 
-        let tools = await toolRegistry.specsAsJSON
+        // Pre-filter tools based on message content
+        let tools = await toolRegistry.filteredSpecsAsJSON(for: input)
 
         for _ in 0..<10 {
             if tokenCount > Int(Double(numCtx) * 0.75) {
@@ -254,7 +255,7 @@ class BaseAgent {
                         }
                     }
 
-                    let tools = await toolRegistry.specsAsJSON
+                    let tools = await toolRegistry.filteredSpecsAsJSON(for: input)
                     var stepCount = 0
 
                     for _ in 0..<10 {
