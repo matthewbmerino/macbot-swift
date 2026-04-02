@@ -8,15 +8,12 @@ struct MacbotApp: App {
 
     var body: some Scene {
         MenuBarExtra("Macbot", systemImage: "brain") {
-            if appState.authService.isUnlocked, let vm = appState.chatViewModel {
+            if appState.isReady, let vm = appState.chatViewModel {
                 MenuBarView(viewModel: vm)
             } else {
                 VStack(spacing: 8) {
-                    Image(systemName: "lock.shield.fill")
-                        .foregroundStyle(.secondary)
-                    Button("Unlock") { appState.authService.authenticate() }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Color.accentColor)
+                    ProgressView().controlSize(.small)
+                    Text("Setting up...").font(.caption)
                 }
                 .padding()
             }
@@ -24,21 +21,25 @@ struct MacbotApp: App {
         .menuBarExtraStyle(.window)
 
         Window("Macbot", id: "main") {
-            Group {
-                if !appState.authService.isUnlocked {
-                    LockScreen(authService: appState.authService)
-                } else if !appState.isReady {
-                    OnboardingView(client: appState.client) { config in
-                        Task { await appState.initialize(with: config) }
-                    }
-                } else {
-                    ChatView(viewModel: appState.chatViewModel!)
-                }
-            }
+            mainContent
         }
 
         Settings {
             SettingsView()
+        }
+    }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        if !appState.authService.isUnlocked {
+            LockScreen(authService: appState.authService)
+        } else if !appState.isReady {
+            OnboardingView(client: appState.client) { config in
+                config.save()
+                Task { await appState.initialize(with: config) }
+            }
+        } else if let vm = appState.chatViewModel {
+            ChatView(viewModel: vm)
         }
     }
 }
@@ -69,28 +70,32 @@ final class AppState {
     var isReady = false
 
     init() {
+        // Try auto-login
+        authService.authenticate()
+
+        // Watch for auth changes and auto-init if config exists
         Task {
+            // Poll for auth (simple, reliable)
             while !authService.isUnlocked {
-                try? await Task.sleep(for: .milliseconds(200))
+                try? await Task.sleep(for: .milliseconds(300))
             }
 
-            // If setup was done before, load saved config and skip wizard
+            // Auth succeeded — if we have a saved config, go straight to chat
             if let savedConfig = ModelConfig.load() {
                 await initialize(with: savedConfig)
             }
-            // Otherwise, OnboardingView will call initialize(with:) after setup
+            // Otherwise, SwiftUI will show OnboardingView which calls initialize when done
         }
     }
 
+    @MainActor
     func initialize(with config: ModelConfig) async {
         let orch = Orchestrator(modelConfig: config)
-
         let vm = ChatViewModel(orchestrator: orch)
-        await MainActor.run {
-            self.orchestrator = orch
-            self.chatViewModel = vm
-            self.isReady = true
-        }
+
+        self.orchestrator = orch
+        self.chatViewModel = vm
+        self.isReady = true
 
         // Quick panel
         QuickPanelController.shared.orchestrator = orch
@@ -100,8 +105,9 @@ final class AppState {
             QuickPanelController.shared.toggle()
         }
 
-        Log.app.info("Macbot ready with config: general=\(config.general), coder=\(config.coder)")
+        Log.app.info("Macbot ready — general=\(config.general), coder=\(config.coder)")
 
+        // Warm models in background
         Task.detached(priority: .background) {
             await orch.prewarm()
         }
