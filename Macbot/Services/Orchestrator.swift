@@ -252,7 +252,17 @@ final class Orchestrator {
     // MARK: - System Prompt
 
     private func buildSystemPrompt(agent: BaseAgent, userId: String) -> String {
-        var parts = [soulPrompt, agent.systemPrompt]
+        // Current date/time so the model always knows "today"
+        let now = Date()
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "EEEE, MMMM d, yyyy"
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm a"
+        let timeZone = TimeZone.current.identifier
+
+        let context = "Current date: \(dateFormatter.string(from: now)). Current time: \(timeFormatter.string(from: now)) (\(timeZone))."
+
+        var parts = [soulPrompt, context, agent.systemPrompt]
 
         let memoryContext = memoryStore.formatForPrompt()
         if !memoryContext.isEmpty { parts.append(memoryContext) }
