@@ -8,12 +8,15 @@ struct MacbotApp: App {
 
     var body: some Scene {
         MenuBarExtra("Macbot", systemImage: "brain") {
-            if appState.isReady {
-                MenuBarView(viewModel: appState.chatViewModel!)
+            if appState.authService.isUnlocked, let vm = appState.chatViewModel {
+                MenuBarView(viewModel: vm)
             } else {
                 VStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Connecting...").font(.caption)
+                    Image(systemName: "lock.shield.fill")
+                        .foregroundStyle(.secondary)
+                    Button("Unlock") { appState.authService.authenticate() }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.accentColor)
                 }
                 .padding()
             }
@@ -22,17 +25,19 @@ struct MacbotApp: App {
 
         Window("Macbot", id: "main") {
             Group {
-                if !appState.isReady {
+                if !appState.authService.isUnlocked {
+                    LockScreen(authService: appState.authService)
+                } else if !appState.isReady {
                     OnboardingView(client: appState.orchestrator.client) {
                         Task { await appState.initialize() }
                     }
                 } else {
                     ChatView(viewModel: appState.chatViewModel!)
+                        .onAppear { appState.authService.recordActivity() }
+                        .onChange(of: appState.chatViewModel?.messages.count) { _, _ in
+                            appState.authService.recordActivity()
+                        }
                 }
-            }
-            .onAppear {
-                // Activate the app so the window comes to front and accepts input
-                NSApplication.shared.activate(ignoringOtherApps: true)
             }
         }
 
@@ -44,19 +49,15 @@ struct MacbotApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Set activation policy to regular so the app gets a dock icon and proper window behavior
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
-            // Reopen main window when dock icon is clicked
-            for window in sender.windows {
-                if window.title == "Macbot" {
-                    window.makeKeyAndOrderFront(nil)
-                    return true
-                }
+            for window in sender.windows where window.title == "Macbot" {
+                window.makeKeyAndOrderFront(nil)
+                return true
             }
         }
         return true
@@ -66,11 +67,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @Observable
 final class AppState {
     let orchestrator = Orchestrator()
+    let authService = AuthService()
     var chatViewModel: ChatViewModel?
     var isReady = false
 
     init() {
-        Task { await initialize() }
+        // Authenticate first, then initialize
+        Task {
+            // Wait for auth
+            while !authService.isUnlocked {
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            await initialize()
+        }
     }
 
     func initialize() async {
