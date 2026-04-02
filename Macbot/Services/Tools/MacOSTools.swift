@@ -34,7 +34,7 @@ enum MacOSTools {
         properties: [:]
     )
     static let screenshotSpec = ToolSpec(
-        name: "take_screenshot", description: "Take a screenshot of the screen.",
+        name: "take_screenshot", description: "Take a screenshot of the screen and display it inline in the chat. The screenshot will be shown as an image in the response automatically.",
         properties: [:]
     )
 
