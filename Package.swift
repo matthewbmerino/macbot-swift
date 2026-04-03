@@ -25,8 +25,9 @@ let package = Package(
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
                 .product(name: "MLXRandom", package: "mlx-swift"),
-                // HuggingFace tokenizers
+                // HuggingFace tokenizers + hub download
                 .product(name: "Transformers", package: "swift-transformers"),
+                .product(name: "Hub", package: "swift-transformers"),
             ],
             path: "Macbot",
             linkerSettings: [
