@@ -13,7 +13,7 @@ final class Orchestrator {
     var soulPrompt: String
 
     /// Which inference backend to use
-    var inferenceBackend: InferenceBackend = .ollama
+    var inferenceBackend: InferenceBackend = .hybrid
 
     enum InferenceBackend: String {
         case ollama    // Standard Ollama HTTP
@@ -96,8 +96,13 @@ final class Orchestrator {
         self.modelConfig = modelConfig
         self.soulPrompt = soulPrompt ?? Self.defaultSoul
 
+        // Set inference backend from config
+        if let backend = InferenceBackend(rawValue: modelConfig.backend) {
+            self.inferenceBackend = backend
+        }
+
         // Connect embedding client to memory store for semantic search
-        memoryStore.embeddingClient = client
+        memoryStore.embeddingClient = activeClient
         memoryStore.embeddingModel = modelConfig.embedding
     }
 
