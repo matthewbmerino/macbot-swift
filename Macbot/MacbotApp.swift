@@ -41,6 +41,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
+
+        // Open the main window on launch
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            for window in NSApplication.shared.windows where window.title == "Macbot" {
+                window.makeKeyAndOrderFront(nil)
+                return
+            }
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
