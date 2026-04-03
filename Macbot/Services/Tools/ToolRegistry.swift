@@ -23,6 +23,7 @@ actor ToolRegistry {
         "macos": (["screenshot", "clipboard", "open app", "volume", "notification", "what apps", "running apps", "battery", "system info"], ["take_screenshot", "open_app", "open_url", "send_notification", "get_clipboard", "set_clipboard", "list_running_apps", "get_system_info"]),
         "code": (["run python", "execute", "script", "run code"], ["run_python", "run_command"]),
         "memory": (["remember", "memory", "recall", "forget", "what do you know"], ["memory_save", "memory_recall", "memory_search", "memory_forget"]),
+        "knowledge": (["document", "knowledge", "ingest", "rag", "what does the doc", "from my files", "in my notes"], ["ingest_file", "ingest_directory", "knowledge_search"]),
     ]
 
     /// Filter tools to 3-5 relevant ones based on message content.

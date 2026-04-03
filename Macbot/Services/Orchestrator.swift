@@ -3,10 +3,31 @@ import Foundation
 @Observable
 final class Orchestrator {
     let client: OllamaClient
+    let mlxClient: MLXClient?
     let router: Router
+    let embeddingRouter: EmbeddingRouter
     let memoryStore: MemoryStore
+    let chunkStore: ChunkStore
     var modelConfig: ModelConfig
     var soulPrompt: String
+
+    /// Which inference backend to use
+    var inferenceBackend: InferenceBackend = .ollama
+
+    enum InferenceBackend: String {
+        case ollama    // Standard Ollama HTTP
+        case mlx       // Native MLX on Apple Silicon
+        case hybrid    // MLX with Ollama fallback (recommended)
+    }
+
+    /// Active inference provider based on backend selection
+    var activeClient: any InferenceProvider {
+        switch inferenceBackend {
+        case .ollama: return client
+        case .mlx: return mlxClient ?? client
+        case .hybrid: return mlxClient ?? client
+        }
+    }
 
     private var conversations: [String: ConversationState] = [:]
     private var userLocks: [String: NSLock] = [:]
@@ -20,6 +41,10 @@ final class Orchestrator {
     private static let affinityTimeout: TimeInterval = 120
     private static let affinityResetGap: TimeInterval = 300
 
+    // Parallel agent execution / Mixture of Agents
+    var parallelAgentsEnabled: Bool = false
+    var mixtureOfAgentsEnabled: Bool = false
+
     // Fast routing patterns
     private static let codePattern = try! NSRegularExpression(
         pattern: "```|def\\s+\\w|function\\s+\\w|class\\s+\\w|import\\s+\\w|const\\s+\\w|npm\\s|pip\\s|git\\s",
@@ -31,6 +56,11 @@ final class Orchestrator {
     )
     private static let complexPattern = try! NSRegularExpression(
         pattern: "\\band\\b.*\\band\\b|\\bthen\\b|\\bstep.by.step\\b|\\bresearch\\b.*\\b(write|create|build|compare|summarize)\\b|\\bfind\\b.*\\b(and|then)\\b.*\\b(compare|summarize|write|create)\\b|\\banalyze\\b.*\\band\\b|\\bplan\\b",
+        options: .caseInsensitive
+    )
+    // Pattern for queries that benefit from multiple perspectives
+    private static let parallelPattern = try! NSRegularExpression(
+        pattern: "\\bcompare\\b|\\bversus\\b|\\bvs\\b|\\bpros and cons\\b|\\bdifference between\\b|\\btradeoffs?\\b|\\bwhich is better\\b",
         options: .caseInsensitive
     )
 
@@ -56,10 +86,17 @@ final class Orchestrator {
         soulPrompt: String? = nil
     ) {
         self.client = OllamaClient(host: host)
+        self.mlxClient = MLXClient(fallback: client)
         self.router = Router(client: client, model: modelConfig.router)
+        self.embeddingRouter = EmbeddingRouter(client: client, embeddingModel: modelConfig.embedding)
         self.memoryStore = MemoryStore()
+        self.chunkStore = ChunkStore()
         self.modelConfig = modelConfig
         self.soulPrompt = soulPrompt ?? Self.defaultSoul
+
+        // Connect embedding client to memory store for semantic search
+        memoryStore.embeddingClient = client
+        memoryStore.embeddingModel = modelConfig.embedding
     }
 
     // MARK: - Public API
@@ -73,6 +110,19 @@ final class Orchestrator {
         }
 
         let hasImages = images != nil && !(images?.isEmpty ?? true)
+
+        // Check for parallel/MoA execution
+        if let parallelCategories = shouldRunParallel(message), !hasImages {
+            if mixtureOfAgentsEnabled {
+                Log.agents.info("[orchestrator] user=\(userId) -> MoA with \(parallelCategories.map(\.rawValue))")
+                return try await mixtureOfAgents(conv: conv, message: message, categories: parallelCategories)
+            } else if parallelAgentsEnabled {
+                Log.agents.info("[orchestrator] user=\(userId) -> parallel with \(parallelCategories.map(\.rawValue))")
+                let results = try await runParallelAgents(conv: conv, message: message, categories: parallelCategories)
+                return results.map { "[\($0.0.displayName)]\n\($0.1)" }.joined(separator: "\n\n---\n\n")
+            }
+        }
+
         let category = await routeMessage(conv: conv, message: message, hasImages: hasImages)
 
         guard let agent = conv.agents[category] ?? conv.agents[.general] else {
@@ -103,6 +153,20 @@ final class Orchestrator {
                     }
 
                     let hasImages = images != nil && !(images?.isEmpty ?? true)
+
+                    // Check for Mixture of Agents
+                    if !hasImages, let parallelCategories = shouldRunParallel(message) {
+                        if mixtureOfAgentsEnabled {
+                            continuation.yield(.status("Running Mixture of Agents..."))
+                            let result = try await mixtureOfAgents(
+                                conv: conv, message: message, categories: parallelCategories
+                            )
+                            continuation.yield(.text(result))
+                            continuation.finish()
+                            return
+                        }
+                    }
+
                     let category = await routeMessage(conv: conv, message: message, hasImages: hasImages)
 
                     guard let agent = conv.agents[category] ?? conv.agents[.general] else {
@@ -128,11 +192,24 @@ final class Orchestrator {
     }
 
     func prewarm() async {
-        do {
-            async let w1: () = client.warmModel(modelConfig.router)
-            async let w2: () = client.warmModel(modelConfig.general)
-            _ = try? await (w1, w2)
+        // Warm models and calibrate embedding router in parallel
+        async let w1: () = client.warmModel(modelConfig.router)
+        async let w2: () = client.warmModel(modelConfig.general)
+        async let w3: () = embeddingRouter.calibrate()
+        async let w4: () = memoryStore.backfillEmbeddings()
+        async let w5: () = chunkStore.loadVectorIndex()
+
+        _ = try? await (w1, w2)
+        await w3
+        await w4
+        await w5
+
+        // Enable speculative decoding if we have a draft model
+        if let mlx = mlxClient {
+            mlx.enableSpeculativeDecoding(draftModel: modelConfig.router)
         }
+
+        Log.app.info("[orchestrator] prewarm complete")
     }
 
     // MARK: - Routing
@@ -144,7 +221,19 @@ final class Orchestrator {
             return skip
         }
 
-        let category = await router.classify(message: message, hasImages: hasImages)
+        // Prefer embedding router (faster, more deterministic) with LLM fallback
+        let category = await embeddingRouter.classify(message: message, hasImages: hasImages)
+
+        // If embedding router has low confidence, cross-check with LLM router
+        if category == .general {
+            let llmCategory = await router.classify(message: message, hasImages: hasImages)
+            if llmCategory != .general {
+                Log.agents.info("[orchestrator] embedding->general, LLM->\(llmCategory.rawValue), using LLM")
+                updateAffinity(conv: conv, category: llmCategory)
+                return llmCategory
+            }
+        }
+
         updateAffinity(conv: conv, category: category)
         return category
     }
@@ -192,11 +281,21 @@ final class Orchestrator {
 
         if let existing = conversations[userId] { return existing }
 
+        let inference = activeClient
+
+        let ragAgent = RAGAgent(
+            client: inference,
+            model: modelConfig.general,
+            embeddingModel: modelConfig.embedding,
+            chunkStore: chunkStore
+        )
+
         let conv = ConversationState(agents: [
-            .general: GeneralAgent(client: client, model: modelConfig.general),
-            .coder: CoderAgent(client: client, model: modelConfig.coder),
-            .vision: VisionAgent(client: client, model: modelConfig.vision),
-            .reasoner: ReasonerAgent(client: client, model: modelConfig.reasoner),
+            .general: GeneralAgent(client: inference, model: modelConfig.general),
+            .coder: CoderAgent(client: inference, model: modelConfig.coder),
+            .vision: VisionAgent(client: inference, model: modelConfig.vision),
+            .reasoner: ReasonerAgent(client: inference, model: modelConfig.reasoner),
+            .rag: ragAgent,
         ])
 
         // Build system prompts with soul + memory
@@ -206,10 +305,11 @@ final class Orchestrator {
             agent.memoryStore = memoryStore
         }
 
-        // Register tools on general + coder (full tool set)
-        for category in [AgentCategory.general, .coder] {
+        // Register tools on general + coder + rag (full tool set)
+        for category in [AgentCategory.general, .coder, .rag] {
             if let agent = conv.agents[category] {
                 registerMemoryTools(on: agent)
+                registerRAGTools(on: agent)
                 await FileTools.register(on: agent.toolRegistry)
                 await WebTools.register(on: agent.toolRegistry)
                 await MacOSTools.register(on: agent.toolRegistry)
@@ -326,6 +426,168 @@ final class Orchestrator {
         }
     }
 
+    // MARK: - RAG Tools
+
+    private func registerRAGTools(on agent: BaseAgent) {
+        agent.registerTool(
+            ToolSpec(
+                name: "ingest_file",
+                description: "Ingest a file into the knowledge base for later retrieval.",
+                properties: [
+                    "path": .init(type: "string", description: "File path to ingest"),
+                ],
+                required: ["path"]
+            )
+        ) { [weak self] args in
+            guard let self else { return "Orchestrator unavailable" }
+            let path = args["path"] as? String ?? ""
+            let ingester = DocumentIngester(
+                client: self.activeClient,
+                embeddingModel: self.modelConfig.embedding,
+                chunkStore: self.chunkStore
+            )
+            let chunks = try await ingester.ingestFile(at: path)
+            return "Ingested \(URL(fileURLWithPath: path).lastPathComponent): \(chunks) chunks added to knowledge base."
+        }
+
+        agent.registerTool(
+            ToolSpec(
+                name: "ingest_directory",
+                description: "Ingest all supported files in a directory into the knowledge base.",
+                properties: [
+                    "path": .init(type: "string", description: "Directory path to scan"),
+                ],
+                required: ["path"]
+            )
+        ) { [weak self] args in
+            guard let self else { return "Orchestrator unavailable" }
+            let path = args["path"] as? String ?? ""
+            let ingester = DocumentIngester(
+                client: self.activeClient,
+                embeddingModel: self.modelConfig.embedding,
+                chunkStore: self.chunkStore
+            )
+            let result = try await ingester.ingestDirectory(at: path)
+            return "Ingested \(result.files) files (\(result.chunks) chunks) from \(path)"
+        }
+
+        agent.registerTool(
+            ToolSpec(
+                name: "knowledge_search",
+                description: "Search the knowledge base for information from ingested documents.",
+                properties: [
+                    "query": .init(type: "string", description: "Search query"),
+                ],
+                required: ["query"]
+            )
+        ) { [weak self] args in
+            guard let self else { return "No knowledge base available" }
+            let query = args["query"] as? String ?? ""
+
+            guard self.chunkStore.totalChunkCount() > 0 else {
+                return "Knowledge base is empty. Use ingest_file or ingest_directory to add documents."
+            }
+
+            let embeddings = try await self.activeClient.embed(
+                model: self.modelConfig.embedding, text: [query]
+            )
+            guard let queryEmb = embeddings.first else { return "Failed to embed query" }
+
+            let results = self.chunkStore.hybridSearch(
+                queryEmbedding: queryEmb, keywords: query, topK: 5
+            )
+
+            if results.isEmpty { return "No relevant documents found for '\(query)'." }
+
+            return results.enumerated().map { (i, r) in
+                let source = URL(fileURLWithPath: r.chunk.sourceFile).lastPathComponent
+                return "[\(i + 1)] (\(source), relevance: \(String(format: "%.0f%%", r.score * 100)))\n\(String(r.chunk.content.prefix(500)))"
+            }.joined(separator: "\n---\n")
+        }
+    }
+
+    // MARK: - Parallel Agent Execution
+
+    /// Run multiple agents on the same query and merge results.
+    /// Used for comparison queries or when Mixture of Agents is enabled.
+    func runParallelAgents(
+        conv: ConversationState,
+        message: String,
+        categories: [AgentCategory]
+    ) async throws -> [(AgentCategory, String)] {
+        try await withThrowingTaskGroup(of: (AgentCategory, String).self) { group in
+            for category in categories {
+                guard let agent = conv.agents[category] else { continue }
+                group.addTask {
+                    let result = try await agent.run(message)
+                    return (category, result)
+                }
+            }
+
+            var results: [(AgentCategory, String)] = []
+            for try await result in group {
+                results.append(result)
+            }
+            return results
+        }
+    }
+
+    // MARK: - Mixture of Agents (MoA)
+
+    /// Mixture of Agents: run multiple agents, then synthesize their outputs
+    /// into a single superior response using a judge/synthesis model.
+    func mixtureOfAgents(
+        conv: ConversationState,
+        message: String,
+        categories: [AgentCategory]
+    ) async throws -> String {
+        let agentResults = try await runParallelAgents(
+            conv: conv, message: message, categories: categories
+        )
+
+        guard agentResults.count > 1 else {
+            return agentResults.first?.1 ?? "No agents available."
+        }
+
+        // Build synthesis prompt with all agent responses
+        let responses = agentResults.map { (cat, result) in
+            "[\(cat.displayName) Agent]\n\(result)"
+        }.joined(separator: "\n\n---\n\n")
+
+        let synthesisPrompt = """
+        Multiple AI agents have answered the following question. Synthesize their responses \
+        into a single, comprehensive answer that takes the best elements from each. \
+        Be concise. Don't mention that multiple agents were used.
+
+        Question: \(message)
+
+        Agent Responses:
+        \(responses)
+        """
+
+        let resp = try await activeClient.chat(
+            model: modelConfig.general,
+            messages: [
+                ["role": "system", "content": "You synthesize multiple perspectives into one clear answer."],
+                ["role": "user", "content": synthesisPrompt],
+            ],
+            tools: nil,
+            temperature: 0.4,
+            numCtx: 16384,
+            timeout: 60
+        )
+
+        return ThinkingStripper.strip(resp.content)
+    }
+
+    /// Check if a message would benefit from parallel agent execution.
+    private func shouldRunParallel(_ message: String) -> [AgentCategory]? {
+        guard parallelAgentsEnabled || mixtureOfAgentsEnabled else { return nil }
+        let range = NSRange(message.startIndex..., in: message)
+        guard Self.parallelPattern.firstMatch(in: message, range: range) != nil else { return nil }
+        return [.general, .coder, .reasoner]
+    }
+
     // MARK: - Commands
 
     private func handleCommand(conv: ConversationState, message: String) async throws -> String {
@@ -342,7 +604,19 @@ final class Orchestrator {
             let models = try await client.listModels()
             let names = models.map(\.name).joined(separator: ", ")
             let memCount = memoryStore.recall(limit: 1000).count
-            return "Models: \(names)\nAgent: \(conv.currentAgent.displayName)\nMemories: \(memCount)\nConversations: \(conversations.count)"
+            let chunkCount = chunkStore.totalChunkCount()
+            let ingestedFiles = chunkStore.ingestedFiles()
+            let mlxStatus = mlxClient != nil ? "available" : "unavailable"
+            return """
+            Models: \(names)
+            Agent: \(conv.currentAgent.displayName)
+            Backend: \(inferenceBackend.rawValue) (MLX: \(mlxStatus))
+            Memories: \(memCount) (vector-indexed)
+            Knowledge base: \(chunkCount) chunks from \(ingestedFiles.count) files
+            Parallel agents: \(parallelAgentsEnabled ? "on" : "off")
+            Mixture of Agents: \(mixtureOfAgentsEnabled ? "on" : "off")
+            Conversations: \(conversations.count)
+            """
 
         case "/code", "/coder":
             conv.currentAgent = .coder
@@ -379,6 +653,56 @@ final class Orchestrator {
             if memories.isEmpty { return "No memories found." }
             return memories.map { "[id=\($0.id ?? 0)] [\($0.category)] \($0.content)" }.joined(separator: "\n")
 
+        case "/knowledge", "/rag":
+            conv.currentAgent = .rag
+            guard !rest.isEmpty, let agent = conv.agents[.rag] else { return "Switched to knowledge agent." }
+            return try await agent.run(rest)
+
+        case "/ingest":
+            guard !rest.isEmpty else { return "Usage: /ingest <file or directory path>" }
+            let path = rest.trimmingCharacters(in: .whitespaces)
+            let ingester = DocumentIngester(
+                client: activeClient,
+                embeddingModel: modelConfig.embedding,
+                chunkStore: chunkStore
+            )
+
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else {
+                return "Path not found: \(path)"
+            }
+
+            if isDir.boolValue {
+                let result = try await ingester.ingestDirectory(at: path)
+                return "Ingested \(result.files) files (\(result.chunks) chunks) into knowledge base."
+            } else {
+                let chunks = try await ingester.ingestFile(at: path)
+                return "Ingested \(URL(fileURLWithPath: path).lastPathComponent): \(chunks) chunks."
+            }
+
+        case "/backend":
+            switch rest.lowercased() {
+            case "mlx":
+                inferenceBackend = .mlx
+                return "Switched to MLX inference (Apple Silicon native)."
+            case "ollama":
+                inferenceBackend = .ollama
+                return "Switched to Ollama inference."
+            case "hybrid":
+                inferenceBackend = .hybrid
+                return "Switched to hybrid inference (MLX with Ollama fallback)."
+            default:
+                return "Current backend: \(inferenceBackend.rawValue). Options: mlx, ollama, hybrid"
+            }
+
+        case "/parallel":
+            parallelAgentsEnabled.toggle()
+            return "Parallel agent execution: \(parallelAgentsEnabled ? "enabled" : "disabled")"
+
+        case "/moa":
+            mixtureOfAgentsEnabled.toggle()
+            return "Mixture of Agents: \(mixtureOfAgentsEnabled ? "enabled" : "disabled")"
+
         case "/help":
             return """
             Commands:
@@ -386,9 +710,14 @@ final class Orchestrator {
               /think <msg> — force reasoning agent
               /see <msg> — force vision agent
               /chat <msg> — force general agent
+              /knowledge <msg> — force knowledge/RAG agent
               /plan <task> — force planning mode
+              /ingest <path> — ingest file/directory into knowledge base
               /remember <text> — save to memory
               /memories [category] — list memories
+              /backend [mlx|ollama|hybrid] — switch inference backend
+              /parallel — toggle parallel agent execution
+              /moa — toggle Mixture of Agents
               /clear — reset conversation
               /status — system info
             """

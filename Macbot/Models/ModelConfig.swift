@@ -8,6 +8,18 @@ struct ModelConfig: Codable {
     var router: String = "qwen3.5:0.8b"
     var embedding: String = "qwen3-embedding:0.6b"
 
+    /// Inference backend preference
+    var backend: String = "hybrid"  // "ollama", "mlx", "hybrid"
+
+    /// Whether speculative decoding is enabled
+    var speculativeDecoding: Bool = true
+
+    /// Whether the embedding router is preferred over LLM router
+    var useEmbeddingRouter: Bool = true
+
+    /// Whether ReAct reflection is enabled on agents
+    var reflectionEnabled: Bool = true
+
     func model(for category: AgentCategory) -> String {
         switch category {
         case .general: general
@@ -19,7 +31,7 @@ struct ModelConfig: Codable {
     }
 
     var numCtx: [AgentCategory: Int] {
-        [.general: 32768, .coder: 65536, .vision: 16384, .reasoner: 32768]
+        [.general: 32768, .coder: 65536, .vision: 16384, .reasoner: 32768, .rag: 32768]
     }
 
     /// All model names that are configured (non-empty).
@@ -34,6 +46,22 @@ struct ModelConfig: Codable {
         if vision.isEmpty { disabled.append(.vision) }
         if reasoner.isEmpty { disabled.append(.reasoner) }
         return disabled
+    }
+
+    /// MLX model equivalents for the configured models.
+    var mlxModels: [String: MLXModelSpec] {
+        var map: [String: MLXModelSpec] = [:]
+        for model in allModels {
+            if let spec = MLXClient.modelCatalog[model] {
+                map[model] = spec
+            }
+        }
+        return map
+    }
+
+    /// Estimate total VRAM needed for all configured models.
+    var estimatedTotalRAM: Double {
+        allModels.compactMap { MLXClient.estimateMemory(for: $0) }.reduce(0, +)
     }
 
     // MARK: - Persistence

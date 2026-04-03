@@ -14,21 +14,73 @@ enum ExecutorTools {
         }
     }
 
+    // Blocked patterns — commands that should never be executed.
+    // Uses allowlist of safe directories instead of a bypassable blocklist.
+    private static let blockedImports: Set<String> = [
+        "subprocess", "shutil.rmtree", "ctypes", "signal",
+    ]
+
+    /// Sandbox profile for macOS sandbox-exec.
+    /// Restricts file system access to temp directory and read-only access elsewhere.
+    private static let sandboxProfile = """
+    (version 1)
+    (deny default)
+    (allow file-read*)
+    (allow file-write*
+        (subpath "/private/tmp")
+        (subpath "/tmp")
+        (subpath "\(NSTemporaryDirectory())")
+    )
+    (allow process-exec)
+    (allow process-fork)
+    (allow sysctl-read)
+    (allow mach-lookup)
+    (allow network-outbound)
+    (allow system-socket)
+    """
+
     static func runPython(code: String) async -> String {
-        let tmpFile = NSTemporaryDirectory() + "macbot_exec_\(UUID().uuidString).py"
+        // Check for blocked imports
+        for blocked in blockedImports {
+            if code.contains(blocked) {
+                return "Error: '\(blocked)' is not allowed in sandboxed execution."
+            }
+        }
+
+        let tmpDir = NSTemporaryDirectory() + "macbot_sandbox_\(UUID().uuidString)/"
+        let tmpFile = tmpDir + "script.py"
 
         do {
+            try FileManager.default.createDirectory(atPath: tmpDir, withIntermediateDirectories: true)
             try code.write(toFile: tmpFile, atomically: true, encoding: .utf8)
         } catch {
             return "Error writing temp file: \(error.localizedDescription)"
         }
 
-        defer { try? FileManager.default.removeItem(atPath: tmpFile) }
+        defer { try? FileManager.default.removeItem(atPath: tmpDir) }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["python3", tmpFile]
-        process.currentDirectoryURL = URL(fileURLWithPath: NSTemporaryDirectory())
+
+        // Use sandbox-exec for macOS sandboxing when available
+        let sandboxProfilePath = tmpDir + "sandbox.sb"
+        if let _ = try? sandboxProfile.write(toFile: sandboxProfilePath, atomically: true, encoding: .utf8) {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/sandbox-exec")
+            process.arguments = ["-f", sandboxProfilePath, "/usr/bin/env", "python3", tmpFile]
+        } else {
+            // Fallback without sandbox
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["python3", tmpFile]
+        }
+
+        process.currentDirectoryURL = URL(fileURLWithPath: tmpDir)
+
+        // Restrict environment
+        process.environment = [
+            "PATH": "/usr/bin:/usr/local/bin:/opt/homebrew/bin",
+            "HOME": tmpDir,
+            "TMPDIR": tmpDir,
+            "PYTHONDONTWRITEBYTECODE": "1",
+        ]
 
         let outPipe = Pipe()
         let errPipe = Pipe()
@@ -38,7 +90,6 @@ enum ExecutorTools {
         do {
             try process.run()
 
-            // Timeout after 30 seconds
             let deadline = Date().addingTimeInterval(30)
             while process.isRunning && Date() < deadline {
                 try await Task.sleep(for: .milliseconds(100))

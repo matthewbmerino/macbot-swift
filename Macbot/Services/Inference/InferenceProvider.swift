@@ -3,11 +3,18 @@ import Foundation
 struct ChatResponse {
     let content: String
     let toolCalls: [[String: Any]]?
+
+    /// Performance metrics from the inference provider.
+    var tokensPerSecond: Double?
+    var timeToFirstToken: TimeInterval?
+    var totalTokens: Int?
 }
 
 struct ModelInfo {
     let name: String
     let size: Int64?
+    var backend: String?   // "ollama" or "mlx"
+    var quantization: String?
 }
 
 protocol InferenceProvider: Sendable {

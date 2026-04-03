@@ -65,6 +65,39 @@ final class DatabaseManager {
             try db.create(index: "idx_chat_messages_chatId", on: "chat_messages", columns: ["chatId"])
         }
 
+        // RAG document chunks and ingestion tracking
+        migrator.registerMigration("v3_rag") { db in
+            try db.create(table: "document_chunks") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("sourceFile", .text).notNull()
+                t.column("chunkIndex", .integer).notNull()
+                t.column("content", .text).notNull()
+                t.column("embedding", .blob).notNull()
+                t.column("tokenCount", .integer).defaults(to: 0)
+                t.column("metadata", .text).defaults(to: "{}")
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(index: "idx_chunks_source", on: "document_chunks", columns: ["sourceFile"])
+
+            try db.create(table: "ingested_files") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("filePath", .text).notNull().unique()
+                t.column("fileHash", .text).notNull()
+                t.column("chunkCount", .integer).defaults(to: 0)
+                t.column("totalTokens", .integer).defaults(to: 0)
+                t.column("ingestedAt", .datetime).notNull()
+                t.column("modifiedAt", .datetime).notNull()
+            }
+        }
+
+        // Vector embeddings for semantic memory search
+        migrator.registerMigration("v4_memory_embeddings") { db in
+            try db.alter(table: "memories") { t in
+                t.add(column: "embedding", .blob)
+            }
+        }
+
         return migrator
     }
 }

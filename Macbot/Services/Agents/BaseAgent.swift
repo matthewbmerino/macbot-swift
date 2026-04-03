@@ -15,6 +15,10 @@ class BaseAgent {
 
     private var tokenCount: Int = 0
 
+    // ReAct reflection — evaluate tool results before responding
+    var reflectionEnabled: Bool = true
+    private let reflectionThreshold = 3  // Reflect after this many tool calls
+
     // Human-readable tool labels for status updates
     static let toolLabels: [String: String] = [
         "web_search": "searching the web",
@@ -31,6 +35,13 @@ class BaseAgent {
         "memory_save": "saving to memory",
         "memory_recall": "recalling memories",
         "memory_search": "searching memory",
+        "ingest_file": "ingesting document",
+        "ingest_directory": "scanning directory",
+        "knowledge_search": "searching knowledge base",
+        "generate_chart": "creating chart",
+        "get_stock_price": "checking stock price",
+        "get_stock_history": "fetching stock history",
+        "get_market_summary": "checking market summary",
     ]
 
     init(
@@ -188,6 +199,7 @@ class BaseAgent {
 
         // Pre-filter tools based on message content
         let tools = await toolRegistry.filteredSpecsAsJSON(for: input)
+        var toolCallCount = 0
 
         for _ in 0..<10 {
             if tokenCount > Int(Double(numCtx) * 0.75) {
@@ -220,9 +232,57 @@ class BaseAgent {
             for (_, result) in results {
                 appendToHistory(["role": "tool", "content": result])
             }
+
+            toolCallCount += toolCalls.count
+
+            // ReAct reflection: after multiple tool calls, evaluate if we have enough
+            // information to answer, or if the approach needs adjustment
+            if reflectionEnabled && toolCallCount >= reflectionThreshold {
+                let shouldContinue = await reflect(
+                    originalQuery: input,
+                    toolResults: results.map(\.1)
+                )
+                if !shouldContinue {
+                    // Inject a reflection nudge to help the model synthesize
+                    appendToHistory([
+                        "role": "system",
+                        "content": "You have gathered enough information. Synthesize your findings and respond to the user's original question directly. Do not call more tools.",
+                    ])
+                }
+            }
         }
 
         return "Max tool iterations reached."
+    }
+
+    // MARK: - ReAct Reflection
+
+    /// Evaluate whether tool results adequately address the user's query.
+    /// Returns true if more tool calls are needed, false if ready to respond.
+    private func reflect(originalQuery: String, toolResults: [String]) async -> Bool {
+        let combinedResults = toolResults.joined(separator: "\n---\n").prefix(2000)
+
+        do {
+            let resp = try await client.chat(
+                model: "qwen3.5:0.8b",
+                messages: [
+                    ["role": "system", "content": "Given a user query and tool results, determine if MORE tool calls are needed. Respond with ONLY 'CONTINUE' or 'SUFFICIENT'. CONTINUE if information is clearly missing or wrong. SUFFICIENT if we can answer."],
+                    ["role": "user", "content": "Query: \(originalQuery)\n\nResults:\n\(combinedResults)"],
+                ],
+                tools: nil,
+                temperature: 0.1,
+                numCtx: 1024,
+                timeout: 10
+            )
+
+            let answer = ThinkingStripper.strip(resp.content).uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            let needsMore = answer.contains("CONTINUE")
+            Log.agents.info("[\(self.name)] reflection: \(needsMore ? "continue" : "sufficient")")
+            return needsMore
+        } catch {
+            Log.agents.warning("[\(self.name)] reflection failed: \(error)")
+            return false  // Default to stopping if reflection fails
+        }
     }
 
     // MARK: - Run (streaming)
@@ -243,7 +303,6 @@ class BaseAgent {
 
                     if plan {
                         if let planText = await generatePlan(input) {
-                            // Estimate time
                             let regex = try? NSRegularExpression(pattern: "~(\\d+)s")
                             let matches = regex?.matches(in: planText, range: NSRange(planText.startIndex..., in: planText)) ?? []
                             let totalEst = matches.compactMap { match -> Int? in
@@ -257,6 +316,7 @@ class BaseAgent {
 
                     let tools = await toolRegistry.filteredSpecsAsJSON(for: input)
                     var stepCount = 0
+                    var totalToolCalls = 0
 
                     for _ in 0..<10 {
                         if tokenCount > Int(Double(numCtx) * 0.75) {
@@ -277,7 +337,6 @@ class BaseAgent {
                         guard let toolCalls = resp.toolCalls, !toolCalls.isEmpty else {
                             var content = ThinkingStripper.strip(resp.content)
 
-                            // Extract any [IMAGE:path] from the model's text response
                             let imgRegex = try? NSRegularExpression(pattern: "\\[IMAGE:(.*?)\\]")
                             if let regex = imgRegex {
                                 let range = NSRange(content.startIndex..., in: content)
@@ -288,7 +347,6 @@ class BaseAgent {
                                             continuation.yield(.image(data, URL(fileURLWithPath: imgPath).lastPathComponent))
                                         }
                                     }
-                                    // Remove the marker from text
                                     if let fullRange = Range(match.range, in: content) {
                                         content.removeSubrange(fullRange)
                                     }
@@ -303,8 +361,8 @@ class BaseAgent {
                             return
                         }
 
-                        // Status update before tool execution
                         stepCount += 1
+                        totalToolCalls += toolCalls.count
                         let toolNames = toolCalls.compactMap {
                             ($0["function"] as? [String: Any])?["name"] as? String
                         }
@@ -312,13 +370,11 @@ class BaseAgent {
                         let stepLabel = labels.joined(separator: ", ")
                         continuation.yield(.status("Step \(stepCount): \(stepLabel)..."))
 
-                        // Execute tools in parallel
                         let imagePattern = try? NSRegularExpression(pattern: "\\[IMAGE:(.*?)\\]")
                         let results = await toolRegistry.executeAll(toolCalls)
                         for (_, result) in results {
                             appendToHistory(["role": "tool", "content": result])
 
-                            // Extract and yield images from tool results
                             if let regex = imagePattern {
                                 let range = NSRange(result.startIndex..., in: result)
                                 let matches = regex.matches(in: result, range: range)
@@ -341,8 +397,22 @@ class BaseAgent {
                             }
                         }
 
-                        // Status update after tool execution — model is now processing results
                         continuation.yield(.status("Step \(stepCount): \(stepLabel) — done. Thinking..."))
+
+                        // ReAct reflection after multiple tool calls
+                        if reflectionEnabled && totalToolCalls >= reflectionThreshold {
+                            let shouldContinue = await reflect(
+                                originalQuery: input,
+                                toolResults: results.map(\.1)
+                            )
+                            if !shouldContinue {
+                                continuation.yield(.status("Synthesizing findings..."))
+                                appendToHistory([
+                                    "role": "system",
+                                    "content": "You have gathered enough information. Synthesize your findings and respond to the user's original question directly. Do not call more tools.",
+                                ])
+                            }
+                        }
                     }
 
                     continuation.yield(.text("Max tool iterations reached."))
