@@ -10,10 +10,10 @@ enum FinanceTools {
 
     static let stockHistorySpec = ToolSpec(
         name: "get_stock_history",
-        description: "Get historical stock price data for a ticker. Use for price trends and performance over time.",
+        description: "Get historical stock price data for a ticker. Use for price trends, performance over time, and YTD returns.",
         properties: [
             "ticker": .init(type: "string", description: "Stock ticker symbol"),
-            "period": .init(type: "string", description: "Time period: 1d, 5d, 1mo, 3mo, 6mo, 1y, 5y"),
+            "period": .init(type: "string", description: "Time period: 1d, 5d, 1mo, 3mo, 6mo, ytd, 1y, 5y. Use 'ytd' for year-to-date returns."),
         ],
         required: ["ticker"]
     )
@@ -94,7 +94,17 @@ enum FinanceTools {
 
     private static func getStockHistory(ticker: String, period: String) async -> String {
         let symbol = ticker.uppercased().trimmingCharacters(in: .whitespaces)
-        guard let url = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(symbol)?interval=1d&range=\(period)") else {
+
+        // Normalize period: handle "year to date", "year-to-date", etc.
+        let normalizedPeriod: String
+        let lowerPeriod = period.lowercased().trimmingCharacters(in: .whitespaces)
+        if lowerPeriod == "ytd" || lowerPeriod.contains("year to date") || lowerPeriod.contains("year-to-date") {
+            normalizedPeriod = "ytd"
+        } else {
+            normalizedPeriod = period
+        }
+
+        guard let url = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(symbol)?interval=1d&range=\(normalizedPeriod)") else {
             return "Error: invalid ticker"
         }
 
@@ -109,29 +119,43 @@ enum FinanceTools {
             guard let chart = json?["chart"] as? [String: Any],
                   let results = chart["result"] as? [[String: Any]],
                   let result = results.first,
+                  let meta = result["meta"] as? [String: Any],
                   let indicators = result["indicators"] as? [String: Any],
                   let quotes = (indicators["quote"] as? [[String: Any]])?.first,
                   let closes = quotes["close"] as? [Double?],
                   let highs = quotes["high"] as? [Double?],
                   let lows = quotes["low"] as? [Double?]
             else {
-                return "No data for \(symbol) over \(period)"
+                return "No data for \(symbol) over \(normalizedPeriod)"
             }
 
             let validCloses = closes.compactMap { $0 }
-            guard let first = validCloses.first, let last = validCloses.last else {
+            guard !validCloses.isEmpty else {
                 return "No data for \(symbol)"
+            }
+
+            let currentPrice = meta["regularMarketPrice"] as? Double ?? validCloses.last ?? 0
+
+            // For YTD: use chartPreviousClose (Dec 31 close) as the starting price
+            // For other periods: use the first close in the range
+            let startPrice: Double
+            if normalizedPeriod == "ytd" {
+                startPrice = meta["chartPreviousClose"] as? Double ?? validCloses.first ?? 0
+            } else {
+                startPrice = validCloses.first ?? 0
             }
 
             let high = highs.compactMap { $0 }.max() ?? 0
             let low = lows.compactMap { $0 }.min() ?? 0
-            let change = last - first
-            let changePct = first > 0 ? (change / first * 100) : 0
+            let change = currentPrice - startPrice
+            let changePct = startPrice > 0 ? (change / startPrice * 100) : 0
+
+            let periodLabel = normalizedPeriod == "ytd" ? "year-to-date" : normalizedPeriod
 
             return """
-            \(symbol) — \(period) performance
-            Start: $\(String(format: "%.2f", first))
-            Current: $\(String(format: "%.2f", last))
+            \(symbol) — \(periodLabel) performance
+            Start: $\(String(format: "%.2f", startPrice))
+            Current: $\(String(format: "%.2f", currentPrice))
             Change: $\(String(format: "%+.2f", change)) (\(String(format: "%+.2f", changePct))%)
             Period High: $\(String(format: "%.2f", high))
             Period Low: $\(String(format: "%.2f", low))
