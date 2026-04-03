@@ -2,20 +2,22 @@ import Foundation
 
 struct ModelCandidate {
     let name: String
-    let params: Double  // Billions
-    let mlxAvailable: Bool  // Whether an MLX-format version exists
+    let params: Double          // Billions (active params for inference speed estimate)
+    let totalParams: Double     // Billions (total params for RAM estimate — differs for MoE)
+    let mlxAvailable: Bool
 
     /// Estimated RAM for Q4_K_M quantization.
-    var estimatedRAM: Double { params * 0.55 + 1.0 }
+    var estimatedRAM: Double { totalParams * 0.55 + 1.0 }
 
     /// Estimated RAM for a specific quantization level.
     func estimatedRAM(quantization: MLXModelSpec.MLXQuantization) -> Double {
-        (params * quantization.bitsPerWeight / 8.0) + 0.5
+        (totalParams * quantization.bitsPerWeight / 8.0) + 0.5
     }
 
-    init(name: String, params: Double, mlxAvailable: Bool = false) {
+    init(name: String, params: Double, totalParams: Double? = nil, mlxAvailable: Bool = false) {
         self.name = name
         self.params = params
+        self.totalParams = totalParams ?? params
         self.mlxAvailable = mlxAvailable
     }
 }
@@ -34,9 +36,13 @@ enum ModelRecommender {
     // mlxAvailable flag indicates if an MLX-community quantized version exists
     static let catalog: [AgentCategory: [ModelCandidate]] = [
         .general: [
+            // Gemma 4 MoE: 26B total but only 4B active — best intelligence per inference cost
+            ModelCandidate(name: "gemma4:26b-a4b", params: 4, totalParams: 26, mlxAvailable: true),
             ModelCandidate(name: "qwen3.5:30b", params: 30, mlxAvailable: true),
             ModelCandidate(name: "qwen3.5:9b", params: 9, mlxAvailable: true),
+            ModelCandidate(name: "gemma4:e4b", params: 4, mlxAvailable: true),
             ModelCandidate(name: "qwen3.5:4b", params: 4, mlxAvailable: true),
+            ModelCandidate(name: "gemma4:e2b", params: 2, mlxAvailable: true),
         ],
         .coder: [
             ModelCandidate(name: "devstral-small-2", params: 24),

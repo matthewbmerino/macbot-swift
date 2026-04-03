@@ -36,18 +36,44 @@ struct MLXModelSpec {
 
 // MARK: - Loaded Model Container
 
+/// Protocol for MLX model architectures (Qwen, Gemma, etc.)
+protocol MLXLanguageModel: AnyObject {
+    func forward(_ tokenIds: MLXArray, cacheOffset: Int) -> MLXArray
+    func clearCache()
+    var cacheLength: Int { get }
+}
+
+extension QwenModel: MLXLanguageModel {
+    func forward(_ tokenIds: MLXArray, cacheOffset: Int) -> MLXArray {
+        callAsFunction(tokenIds, cacheOffset: cacheOffset)
+    }
+}
+extension GemmaModel: MLXLanguageModel {
+    func forward(_ tokenIds: MLXArray, cacheOffset: Int) -> MLXArray {
+        callAsFunction(tokenIds, cacheOffset: cacheOffset)
+    }
+}
+
 /// Holds a loaded MLX model with its tokenizer and weights.
 final class LoadedMLXModel: @unchecked Sendable {
-    let model: QwenModel
+    let model: any MLXLanguageModel
     let tokenizer: any Tokenizer
     let eosTokenId: Int
     let spec: MLXModelSpec
+    let architecture: ModelArchitecture
 
-    init(model: QwenModel, tokenizer: any Tokenizer, eosTokenId: Int, spec: MLXModelSpec) {
+    enum ModelArchitecture {
+        case qwen2
+        case gemma
+    }
+
+    init(model: any MLXLanguageModel, tokenizer: any Tokenizer, eosTokenId: Int,
+         spec: MLXModelSpec, architecture: ModelArchitecture) {
         self.model = model
         self.tokenizer = tokenizer
         self.eosTokenId = eosTokenId
         self.spec = spec
+        self.architecture = architecture
     }
 }
 
@@ -329,6 +355,21 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
             huggingFaceId: "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
             contextLength: 2048, quantization: .q4
         ),
+
+        // Gemma 4 — MoE (26B total, 4B active per token)
+        "gemma4:26b-a4b": MLXModelSpec(
+            huggingFaceId: "mlx-community/gemma-4-26b-a4b-it-4bit",
+            contextLength: 131072, quantization: .q4
+        ),
+        // Gemma 4 — Edge models
+        "gemma4:e4b": MLXModelSpec(
+            huggingFaceId: "mlx-community/gemma-4-e4b-it-4bit",
+            contextLength: 32768, quantization: .q4
+        ),
+        "gemma4:e2b": MLXModelSpec(
+            huggingFaceId: "mlx-community/gemma-4-e2b-it-4bit",
+            contextLength: 32768, quantization: .q4
+        ),
     ]
 
     init(modelDirectory: URL? = nil, fallback: OllamaClient? = nil) {
@@ -358,7 +399,9 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
 
         do {
             let loaded = try await getOrLoadModel(spec: spec)
-            let prompt = buildChatPrompt(messages: messages)
+            let prompt = loaded.architecture == .gemma
+                ? buildGemmaChatPrompt(messages: messages)
+                : buildChatPrompt(messages: messages)
             let startTime = CFAbsoluteTimeGetCurrent()
 
             let output = try generate(
@@ -409,7 +452,9 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
                     }
 
                     let loaded = try await getOrLoadModel(spec: spec)
-                    let prompt = buildChatPrompt(messages: messages)
+                    let prompt = loaded.architecture == .gemma
+                        ? buildGemmaChatPrompt(messages: messages)
+                        : buildChatPrompt(messages: messages)
                     let startTime = CFAbsoluteTimeGetCurrent()
                     var tokenCount = 0
 
@@ -521,14 +566,35 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
         guard let configJSON = try JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
             throw MLXError.loadFailed("Failed to parse config.json")
         }
-        let config = QwenModel.Config.from(json: configJSON)
 
         // Load tokenizer
         let tokenizer = try await AutoTokenizer.from(modelFolder: modelDir)
-        let eosTokenId = tokenizer.eosTokenId ?? 151643  // Qwen default
 
-        // Create model architecture
-        let model = QwenModel(config: config)
+        // Detect architecture from config
+        let modelType = (configJSON["model_type"] as? String)
+            ?? (configJSON["text_config"] as? [String: Any])?["model_type"] as? String
+            ?? ""
+        let isGemma = modelType.lowercased().contains("gemma")
+
+        let model: any MLXLanguageModel
+        let eosTokenId: Int
+        let architecture: LoadedMLXModel.ModelArchitecture
+
+        if isGemma {
+            let config = GemmaConfig.from(json: configJSON)
+            let gemmaModel = GemmaModel(config: config)
+            model = gemmaModel
+            eosTokenId = tokenizer.eosTokenId ?? 1  // Gemma default
+            architecture = .gemma
+            Log.inference.info("[mlx] detected Gemma architecture (\(config.numHiddenLayers) layers, \(config.numExperts) experts)")
+        } else {
+            let config = QwenModel.Config.from(json: configJSON)
+            let qwenModel = QwenModel(config: config)
+            model = qwenModel
+            eosTokenId = tokenizer.eosTokenId ?? 151643  // Qwen default
+            architecture = .qwen2
+            Log.inference.info("[mlx] detected Qwen2 architecture (\(config.numHiddenLayers) layers, \(config.hiddenSize) hidden)")
+        }
 
         // Load weights from safetensors
         let safetensorFiles = try FileManager.default.contentsOfDirectory(at: modelDir, includingPropertiesForKeys: nil)
@@ -538,24 +604,22 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
         for file in safetensorFiles {
             let weights = try loadArrays(url: file)
             for (key, value) in weights {
-                // Map HuggingFace weight names to our Module structure
-                let mappedKey = mapWeightKey(key)
+                let mappedKey = isGemma ? mapGemmaWeightKey(key) : mapWeightKey(key)
                 allWeights[mappedKey] = value
             }
         }
 
         Log.inference.info("[mlx] loaded \(allWeights.count) weight tensors")
 
-        // Update model with loaded weights
         let params = ModuleParameters.unflattened(allWeights)
-        model.update(parameters: params)
+        (model as! Module).update(parameters: params)
 
-        // Evaluate to materialize weights in GPU memory
-        eval(model)
+        eval(model as! Module)
 
-        Log.inference.info("[mlx] model \(spec.huggingFaceId) ready (\(config.numHiddenLayers) layers, \(config.hiddenSize) hidden)")
+        Log.inference.info("[mlx] model \(spec.huggingFaceId) ready")
 
-        let loaded = LoadedMLXModel(model: model, tokenizer: tokenizer, eosTokenId: eosTokenId, spec: spec)
+        let loaded = LoadedMLXModel(model: model, tokenizer: tokenizer,
+                                     eosTokenId: eosTokenId, spec: spec, architecture: architecture)
 
         lock.lock()
         loadedModels[spec.huggingFaceId] = loaded
@@ -593,7 +657,7 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
         let inputArray = MLXArray(inputTokens).reshaped(1, inputTokens.count)
 
         // Prefill: process all input tokens at once
-        var logits = loaded.model(inputArray)
+        var logits = loaded.model.forward(inputArray, cacheOffset: 0)
         eval(logits)
 
         var generatedTokens: [Int] = []
@@ -605,7 +669,7 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
 
             // Decode: process one token at a time with KV cache
             let tokenArray = MLXArray([Int32(nextToken)]).reshaped(1, 1)
-            logits = loaded.model(tokenArray, cacheOffset: loaded.model.cacheLength - 1)
+            logits = loaded.model.forward(tokenArray, cacheOffset: loaded.model.cacheLength - 1)
             eval(logits)
 
             nextToken = sampleToken(logits: logits[0, -1], temperature: Float(temperature))
@@ -630,7 +694,7 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
                     let inputArray = MLXArray(inputTokens).reshaped(1, inputTokens.count)
 
                     // Prefill
-                    var logits = loaded.model(inputArray)
+                    var logits = loaded.model.forward(inputArray, cacheOffset: 0)
                     eval(logits)
 
                     var nextToken = sampleToken(logits: logits[0, -1], temperature: Float(temperature))
@@ -650,7 +714,7 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
                         }
 
                         let tokenArray = MLXArray([Int32(nextToken)]).reshaped(1, 1)
-                        logits = loaded.model(tokenArray, cacheOffset: loaded.model.cacheLength - 1)
+                        logits = loaded.model.forward(tokenArray, cacheOffset: loaded.model.cacheLength - 1)
                         eval(logits)
 
                         nextToken = sampleToken(logits: logits[0, -1], temperature: Float(temperature))
@@ -697,10 +761,23 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
         return loaded
     }
 
+    /// Total parameter count for RAM estimation (not active params).
+    private static let totalParamOverrides: [String: Double] = [
+        "gemma4:26b-a4b": 26.0,  // 26B total params, 4B active
+    ]
+
     static func estimateMemory(for model: String) -> Double? {
         guard let spec = modelCatalog[model] else { return nil }
-        let paramMatch = model.components(separatedBy: ":").last ?? ""
-        let paramB = Double(paramMatch.replacingOccurrences(of: "b", with: "")) ?? 7.0
+        // Use override for MoE models (total weight count, not active params)
+        let paramB: Double
+        if let override = totalParamOverrides[model] {
+            paramB = override
+        } else {
+            let match = model.components(separatedBy: ":").last ?? ""
+            paramB = Double(match.replacingOccurrences(of: "b", with: "")
+                .replacingOccurrences(of: "-a4b", with: "")
+                .replacingOccurrences(of: "e", with: "")) ?? 7.0
+        }
         return (paramB * spec.quantization.bitsPerWeight / 8.0) + 0.5
     }
 
@@ -714,9 +791,32 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
         return options
     }
 
+    /// Map Gemma HuggingFace weight keys to our Module parameter paths.
+    private func mapGemmaWeightKey(_ key: String) -> String {
+        key.replacingOccurrences(of: "language_model.model.", with: "")
+            .replacingOccurrences(of: "model.", with: "")
+            .replacingOccurrences(of: "embed_tokens", with: "embedTokens")
+            .replacingOccurrences(of: "self_attn", with: "selfAttn")
+            .replacingOccurrences(of: "q_proj", with: "qProj")
+            .replacingOccurrences(of: "k_proj", with: "kProj")
+            .replacingOccurrences(of: "v_proj", with: "vProj")
+            .replacingOccurrences(of: "o_proj", with: "oProj")
+            .replacingOccurrences(of: "gate_proj", with: "gateProj")
+            .replacingOccurrences(of: "up_proj", with: "upProj")
+            .replacingOccurrences(of: "down_proj", with: "downProj")
+            .replacingOccurrences(of: "input_layernorm", with: "inputLayernorm")
+            .replacingOccurrences(of: "post_attention_layernorm", with: "postAttentionLayernorm")
+            .replacingOccurrences(of: "pre_feedforward_layernorm", with: "preFeedforwardLayernorm")
+            .replacingOccurrences(of: "post_feedforward_layernorm", with: "postFeedforwardLayernorm")
+            .replacingOccurrences(of: "block_sparse_moe", with: "mlp.moe")
+            .replacingOccurrences(of: "lm_head", with: "lmHead")
+    }
+
     // MARK: - Prompt Building
 
     private func buildChatPrompt(messages: [[String: Any]]) -> String {
+        // Detect if this is a Gemma model based on the loaded model
+        // Default to ChatML (Qwen) format, Gemma uses <start_of_turn>/<end_of_turn>
         var parts: [String] = []
         for msg in messages {
             let role = msg["role"] as? String ?? "user"
@@ -724,6 +824,26 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
             parts.append("<|im_start|>\(role)\n\(content)<|im_end|>")
         }
         parts.append("<|im_start|>assistant\n")
+        return parts.joined(separator: "\n")
+    }
+
+    /// Gemma-specific chat template using <start_of_turn>/<end_of_turn>.
+    private func buildGemmaChatPrompt(messages: [[String: Any]]) -> String {
+        var parts: [String] = []
+        for msg in messages {
+            let role = msg["role"] as? String ?? "user"
+            let content = msg["content"] as? String ?? ""
+
+            let gemmaRole: String
+            switch role {
+            case "system": gemmaRole = "user"  // Gemma folds system into user
+            case "assistant": gemmaRole = "model"
+            default: gemmaRole = role
+            }
+
+            parts.append("<start_of_turn>\(gemmaRole)\n\(content)<end_of_turn>")
+        }
+        parts.append("<start_of_turn>model\n")
         return parts.joined(separator: "\n")
     }
 
