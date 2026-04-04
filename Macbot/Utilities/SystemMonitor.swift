@@ -3,6 +3,8 @@ import AppKit
 
 @Observable
 final class SystemMonitor {
+    static let shared = SystemMonitor()
+
     var cpuUsage: Double = 0       // 0.0 to 1.0
     var memoryUsage: Double = 0    // 0.0 to 1.0
     var memoryUsedGB: Double = 0
@@ -11,15 +13,33 @@ final class SystemMonitor {
 
     private var timer: Timer?
     private var previousCPUInfo: host_cpu_load_info?
+    private var observerCount = 0
 
     init() {
         let totalBytes = ProcessInfo.processInfo.physicalMemory
         memoryTotalGB = Double(totalBytes) / (1024 * 1024 * 1024)
         update()
-        startMonitoring()
+    }
+
+    /// Call when a view appears that needs live stats.
+    /// Timer only runs while at least one observer is active.
+    func addObserver() {
+        observerCount += 1
+        if observerCount == 1 {
+            startMonitoring()
+        }
+    }
+
+    /// Call when a view disappears.
+    func removeObserver() {
+        observerCount = max(0, observerCount - 1)
+        if observerCount == 0 {
+            stopMonitoring()
+        }
     }
 
     func startMonitoring() {
+        guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.update()
         }

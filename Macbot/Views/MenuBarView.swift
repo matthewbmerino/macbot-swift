@@ -13,8 +13,9 @@ private enum Obsidian {
 struct MenuBarView: View {
     @Bindable var viewModel: ChatViewModel
     @Environment(\.openWindow) private var openWindow
-    @State private var monitor = SystemMonitor()
+    private var monitor: SystemMonitor { SystemMonitor.shared }
     @State private var livePulse = false
+    @State private var isVisible = false
 
     var body: some View {
         VStack(spacing: 14) {
@@ -48,16 +49,9 @@ struct MenuBarView: View {
                 }
             }
 
-            // Gauges
-            HStack(spacing: 12) {
-                circularGauge(label: "CPU", value: monitor.cpuUsage, color: .cyan)
-                circularGauge(
-                    label: "MEM", value: monitor.memoryUsage, color: memoryColor,
-                    subLabel: "\(String(format: "%.1f", monitor.memoryUsedGB)) / \(Int(monitor.memoryTotalGB))GB"
-                )
-                circularGauge(label: "GPU", value: monitor.gpuUsage, color: .purple)
-            }
-            .padding(.vertical, 4)
+            // Gauges — isolated in child view so monitor updates don't re-render the full popover
+            SystemGaugesView()
+                .padding(.vertical, 4)
 
             separator
 
@@ -125,20 +119,47 @@ struct MenuBarView: View {
         .padding(16)
         .frame(width: 300)
         .background(Obsidian.bg)
+        .onAppear {
+            monitor.addObserver()
+        }
+        .onDisappear {
+            monitor.removeObserver()
+        }
     }
 
-    // MARK: - Circular Gauge
+    private var separator: some View {
+        Rectangle()
+            .fill(.white.opacity(0.05))
+            .frame(height: 0.5)
+    }
+}
+
+// MARK: - System Gauges (isolated to prevent popover flicker)
+
+/// Separate view so SystemMonitor @Observable updates only re-render
+/// the gauges, not the entire MenuBarExtra popover.
+private struct SystemGaugesView: View {
+    private var monitor: SystemMonitor { SystemMonitor.shared }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            circularGauge(label: "CPU", value: monitor.cpuUsage, color: .cyan)
+            circularGauge(
+                label: "MEM", value: monitor.memoryUsage, color: memoryColor,
+                subLabel: "\(String(format: "%.1f", monitor.memoryUsedGB)) / \(Int(monitor.memoryTotalGB))GB"
+            )
+            circularGauge(label: "GPU", value: monitor.gpuUsage, color: .purple)
+        }
+    }
 
     private func circularGauge(
         label: String, value: Double, color: Color, subLabel: String? = nil
     ) -> some View {
         VStack(spacing: 4) {
             ZStack {
-                // Track
                 Circle()
                     .stroke(color.opacity(0.1), lineWidth: 3)
 
-                // Fill
                 Circle()
                     .trim(from: 0, to: CGFloat(min(value, 1.0)))
                     .stroke(
@@ -151,7 +172,6 @@ struct MenuBarView: View {
                     .rotationEffect(.degrees(-90))
                     .animation(.easeInOut(duration: 0.8), value: value)
 
-                // Percentage
                 Text("\(Int(value * 100))")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.8))
@@ -177,17 +197,11 @@ struct MenuBarView: View {
         if monitor.memoryUsage > 0.7 { return .orange }
         return .green
     }
-
-    private var separator: some View {
-        Rectangle()
-            .fill(.white.opacity(0.05))
-            .frame(height: 0.5)
-    }
 }
 
 // MARK: - Hex Color Extension
 
-private extension Color {
+extension Color {
     init(hex: UInt, opacity: Double = 1.0) {
         self.init(
             red: Double((hex >> 16) & 0xFF) / 255,
