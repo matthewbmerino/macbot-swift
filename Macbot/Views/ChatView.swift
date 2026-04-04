@@ -2,19 +2,41 @@ import SwiftUI
 import MarkdownUI
 import UniformTypeIdentifiers
 
+// MARK: - Obsidian Design Tokens
+
+private enum ODS {
+    static let bg = Color(red: 0.067, green: 0.067, blue: 0.067)           // #111111
+    static let surface = Color(red: 0.102, green: 0.102, blue: 0.102)      // #1A1A1A
+    static let surfaceHover = Color(red: 0.133, green: 0.133, blue: 0.133) // #222222
+    static let border = Color.white.opacity(0.1)
+    static let borderSubtle = Color.white.opacity(0.05)
+    static let textPrimary = Color.white.opacity(0.9)
+    static let textSecondary = Color.white.opacity(0.5)
+    static let textTertiary = Color.white.opacity(0.3)
+    static let cornerRadius: CGFloat = 24
+    static let innerRadius: CGFloat = 16
+}
+
 struct ChatView: View {
     @Bindable var viewModel: ChatViewModel
     @FocusState private var inputFocused: Bool
     @State private var dragOver = false
+    @State private var livePulse = false
 
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
-        } detail: {
+                .frame(width: 220)
+
+            // Subtle vertical divider
+            Rectangle()
+                .fill(ODS.borderSubtle)
+                .frame(width: 0.5)
+
             chatContent
         }
-        .frame(minWidth: 650, minHeight: 500)
+        .background(ODS.bg)
+        .frame(minWidth: 700, minHeight: 520)
         .onAppear { inputFocused = true }
     }
 
@@ -22,76 +44,98 @@ struct ChatView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header + New Chat
-            HStack {
+            // Header
+            HStack(spacing: 8) {
                 Image(systemName: "brain")
-                    .foregroundStyle(Color.accentColor)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+
                 Text("Macbot")
-                    .font(.headline)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(ODS.textPrimary)
+
                 Spacer()
+
                 Button(action: { viewModel.newChat() }) {
                     Image(systemName: "square.and.pencil")
-                        .font(.body)
+                        .font(.system(size: 12))
+                        .foregroundStyle(ODS.textSecondary)
+                        .padding(6)
+                        .background(.white.opacity(0.04))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
                 .help("New Chat")
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
 
             // Search
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                TextField("Search chats...", text: $viewModel.searchQuery)
+                    .font(.system(size: 10))
+                    .foregroundStyle(ODS.textTertiary)
+                TextField("Search...", text: $viewModel.searchQuery)
                     .textFieldStyle(.plain)
-                    .font(.caption)
-                    .onChange(of: viewModel.searchQuery) { _, _ in
-                        viewModel.search()
-                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(ODS.textPrimary)
+                    .onChange(of: viewModel.searchQuery) { _, _ in viewModel.search() }
                 if !viewModel.searchQuery.isEmpty {
                     Button(action: { viewModel.clearSearch() }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 9))
+                            .foregroundStyle(ODS.textTertiary)
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(.quaternary.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .padding(.horizontal, 10)
-            .padding(.bottom, 8)
+            .background(ODS.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(ODS.borderSubtle, lineWidth: 0.5))
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
 
-            Divider()
-
-            // Search results or chat list
+            // Chat list
             if viewModel.isSearching {
                 searchResultsList
             } else {
                 chatList
             }
 
-            Divider()
+            Spacer(minLength: 0)
 
             // Status bar
             HStack(spacing: 6) {
-                Circle()
-                    .fill(viewModel.isStreaming ? Color.orange : Color.green)
-                    .frame(width: 5, height: 5)
-                Text(viewModel.isStreaming ? "Thinking..." : viewModel.activeAgent.displayName)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                // Live indicator
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.system(size: 7))
+                    .foregroundStyle(.green)
+                    .opacity(livePulse ? 1.0 : 0.35)
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                            livePulse = true
+                        }
+                    }
+
+                Text(viewModel.isStreaming ? "Thinking..." : "On-Device")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(viewModel.isStreaming ? .orange.opacity(0.7) : .green.opacity(0.5))
+
                 Spacer()
-                Text("\(viewModel.chats.count) chats")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+
+                Text(viewModel.activeAgent.displayName)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(ODS.textTertiary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(.white.opacity(0.04))
+                    .clipShape(Capsule())
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
         .background(.ultraThinMaterial)
     }
@@ -108,50 +152,46 @@ struct ChatView: View {
     }
 
     private func chatRow(_ chat: ChatRecord) -> some View {
-        Button(action: { viewModel.selectChat(chat.id) }) {
+        let isSelected = viewModel.currentChatId == chat.id
+
+        return Button(action: { viewModel.selectChat(chat.id) }) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(chat.title)
-                    .font(.caption)
-                    .fontWeight(viewModel.currentChatId == chat.id ? .semibold : .regular)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? ODS.textPrimary : ODS.textSecondary)
                     .lineLimit(1)
 
                 HStack {
                     Text(chat.lastMessage)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 9))
+                        .foregroundStyle(ODS.textTertiary)
                         .lineLimit(1)
                     Spacer()
                     Text(chat.updatedAt, style: .relative)
-                        .font(.caption2)
-                        .foregroundStyle(.quaternary)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(ODS.textTertiary.opacity(0.6))
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                viewModel.currentChatId == chat.id
-                ? Color.accentColor.opacity(0.1)
-                : Color.clear
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .background(isSelected ? .white.opacity(0.06) : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 6)
         .contextMenu {
-            Button("Delete", role: .destructive) {
-                viewModel.deleteChat(chat.id)
-            }
+            Button("Delete", role: .destructive) { viewModel.deleteChat(chat.id) }
         }
     }
 
     private var searchResultsList: some View {
         ScrollView {
             if viewModel.searchResults.isEmpty {
-                Text("No results for \"\(viewModel.searchQuery)\"")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                Text("No results")
+                    .font(.system(size: 11))
+                    .foregroundStyle(ODS.textTertiary)
                     .padding()
             } else {
                 LazyVStack(alignment: .leading, spacing: 4) {
@@ -159,12 +199,12 @@ struct ChatView: View {
                         Button(action: { viewModel.selectChat(result.message.chatId) }) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(result.chatTitle)
-                                    .font(.caption)
-                                    .fontWeight(.medium)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(ODS.textPrimary)
                                     .lineLimit(1)
                                 Text(result.message.content)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(ODS.textTertiary)
                                     .lineLimit(2)
                             }
                             .padding(.horizontal, 12)
@@ -184,7 +224,7 @@ struct ChatView: View {
     // MARK: - Chat Content
 
     private var chatContent: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             // Messages area
             ScrollViewReader { proxy in
                 ScrollView {
@@ -205,9 +245,11 @@ struct ChatView: View {
 
                             if viewModel.isStreaming && viewModel.currentStatus == nil
                                 && viewModel.messages.last?.role == .user {
-                                typingIndicator
-                                    .id("typing")
+                                typingIndicator.id("typing")
                             }
+
+                            // Spacer for floating input
+                            Color.clear.frame(height: 80)
                         }
                         .padding(.vertical, 8)
                     }
@@ -221,33 +263,35 @@ struct ChatView: View {
                 }
             }
 
-            Divider()
-
-            // Image preview
-            if !viewModel.pendingImages.isEmpty {
-                imagePreview
+            // Floating input capsule
+            VStack(spacing: 0) {
+                if !viewModel.pendingImages.isEmpty {
+                    imagePreview
+                }
+                floatingInputBar
             }
-
-            // Input bar
-            inputBar
+            .padding(.horizontal, 24)
+            .padding(.bottom, 16)
         }
+        .background(ODS.bg)
         .onDrop(of: [.image, .fileURL], isTargeted: $dragOver) { providers in
             handleDrop(providers: providers)
             return true
         }
         .overlay {
             if dragOver {
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.accentColor, lineWidth: 2)
-                    .background(.ultraThinMaterial.opacity(0.3))
+                RoundedRectangle(cornerRadius: ODS.cornerRadius)
+                    .stroke(Color.accentColor.opacity(0.5), lineWidth: 1.5)
+                    .background(.ultraThinMaterial.opacity(0.2))
+                    .clipShape(RoundedRectangle(cornerRadius: ODS.cornerRadius))
                     .overlay {
                         VStack(spacing: 8) {
                             Image(systemName: "photo.badge.plus")
-                                .font(.largeTitle)
+                                .font(.system(size: 28, weight: .light))
                             Text("Drop image to analyze")
-                                .font(.caption)
+                                .font(.system(size: 12, weight: .medium))
                         }
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.accentColor.opacity(0.8))
                     }
                     .padding(4)
             }
@@ -257,23 +301,29 @@ struct ChatView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             Spacer()
 
-            Image(systemName: "brain")
-                .font(.system(size: 40))
-                .foregroundStyle(.tertiary)
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.03))
+                    .frame(width: 80, height: 80)
+                Image(systemName: "brain")
+                    .font(.system(size: 32, weight: .thin))
+                    .foregroundStyle(ODS.textTertiary)
+            }
 
             Text("What can I help with?")
-                .font(.title3)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(ODS.textSecondary)
 
             Text("All processing happens on this Mac.\nNothing leaves your network.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 12))
+                .foregroundStyle(ODS.textTertiary)
                 .multilineTextAlignment(.center)
 
             Spacer()
+            Color.clear.frame(height: 80)
         }
         .frame(maxWidth: .infinity)
         .padding()
@@ -282,16 +332,15 @@ struct ChatView: View {
     // MARK: - Typing Indicator
 
     private var typingIndicator: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             ForEach(0..<3, id: \.self) { i in
                 Circle()
-                    .fill(.secondary)
-                    .frame(width: 6, height: 6)
-                    .opacity(0.4)
+                    .fill(.white.opacity(0.3))
+                    .frame(width: 5, height: 5)
                     .animation(
-                        .easeInOut(duration: 0.6)
+                        .easeInOut(duration: 0.5)
                         .repeatForever()
-                        .delay(Double(i) * 0.2),
+                        .delay(Double(i) * 0.15),
                         value: viewModel.isStreaming
                     )
             }
@@ -311,14 +360,15 @@ struct ChatView: View {
                             Image(nsImage: nsImage)
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
-                                .frame(width: 60, height: 60)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .frame(width: 52, height: 52)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(ODS.border, lineWidth: 0.5))
 
                             Button(action: { viewModel.pendingImages.remove(at: idx) }) {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.white)
-                                    .background(Circle().fill(.black.opacity(0.6)))
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.white.opacity(0.8))
+                                    .background(Circle().fill(.black.opacity(0.5)))
                             }
                             .buttonStyle(.plain)
                             .offset(x: 4, y: -4)
@@ -326,26 +376,27 @@ struct ChatView: View {
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.horizontal, 4)
+            .padding(.bottom, 6)
         }
     }
 
-    // MARK: - Input Bar
+    // MARK: - Floating Input Bar
 
-    private var inputBar: some View {
-        HStack(spacing: 8) {
-            // Attach button
+    private var floatingInputBar: some View {
+        HStack(spacing: 10) {
             Button(action: { pickImage() }) {
                 Image(systemName: "paperclip")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(ODS.textTertiary)
             }
             .buttonStyle(.plain)
             .help("Attach image")
 
-            TextField("Message macbot...", text: $viewModel.inputText, axis: .vertical)
+            TextField("Message Macbot...", text: $viewModel.inputText, axis: .vertical)
                 .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundStyle(ODS.textPrimary)
                 .lineLimit(1...6)
                 .focused($inputFocused)
                 .onSubmit { sendMessage() }
@@ -353,8 +404,8 @@ struct ChatView: View {
 
             Button(action: { sendMessage() }) {
                 Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(canSend ? Color.accentColor : Color.secondary.opacity(0.3))
+                    .font(.system(size: 22))
+                    .foregroundStyle(canSend ? Color.accentColor : ODS.textTertiary.opacity(0.3))
             }
             .disabled(!canSend)
             .buttonStyle(.plain)
@@ -362,6 +413,10 @@ struct ChatView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .background(ODS.surface)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(ODS.border, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
     }
 
     private var canSend: Bool {
@@ -404,16 +459,19 @@ struct ChatView: View {
     }
 }
 
+// MARK: - Agent Badge
+
 struct AgentBadge: View {
     let category: AgentCategory
 
     var body: some View {
         Text(category.displayName)
-            .font(.caption2)
-            .fontWeight(.medium)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(.white.opacity(0.5))
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(.quaternary)
+            .background(.white.opacity(0.05))
             .clipShape(Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.06), lineWidth: 0.5))
     }
 }
