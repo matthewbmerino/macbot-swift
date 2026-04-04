@@ -14,8 +14,6 @@ struct MenuBarView: View {
     @Bindable var viewModel: ChatViewModel
     @Environment(\.openWindow) private var openWindow
     private var monitor: SystemMonitor { SystemMonitor.shared }
-    @State private var livePulse = false
-    @State private var isVisible = false
 
     var body: some View {
         VStack(spacing: 14) {
@@ -32,21 +30,7 @@ struct MenuBarView: View {
                 Spacer()
 
                 // Live on-device indicator
-                HStack(spacing: 4) {
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 8))
-                        .foregroundStyle(.green)
-                        .opacity(livePulse ? 1.0 : 0.4)
-
-                    Text("On-Device")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.green.opacity(0.7))
-                }
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                        livePulse = true
-                    }
-                }
+                LiveIndicator()
             }
 
             // Gauges — isolated in child view so monitor updates don't re-render the full popover
@@ -131,6 +115,32 @@ struct MenuBarView: View {
         Rectangle()
             .fill(.white.opacity(0.05))
             .frame(height: 0.5)
+    }
+}
+
+// MARK: - Live Indicator (isolated animation)
+
+/// Separate view so the repeating opacity animation doesn't
+/// propagate up and cause the MenuBarExtra popover to re-layout.
+private struct LiveIndicator: View {
+    @State private var pulse = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "dot.radiowaves.left.and.right")
+                .font(.system(size: 8))
+                .foregroundStyle(.green)
+                .opacity(pulse ? 1.0 : 0.4)
+
+            Text("On-Device")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.green.opacity(0.7))
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
     }
 }
 
