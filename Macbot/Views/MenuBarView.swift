@@ -39,18 +39,12 @@ struct MenuBarView: View {
 
             separator
 
-            // Last message preview
-            if let last = viewModel.messages.last(where: { $0.role == .assistant }) {
-                Text(String(last.content.prefix(120)))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .lineLimit(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text("Ready. All processing on this Mac.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
-            }
+            // Last message preview (fixed height to prevent layout shifts)
+            Text(lastMessagePreview)
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.5))
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
 
             separator
 
@@ -67,11 +61,10 @@ struct MenuBarView: View {
                     .onSubmit { viewModel.send() }
                     .disabled(viewModel.isStreaming)
 
-                if viewModel.isStreaming {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white.opacity(0.4))
-                }
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white.opacity(0.4))
+                    .opacity(viewModel.isStreaming ? 1 : 0)
             }
 
             separator
@@ -102,13 +95,22 @@ struct MenuBarView: View {
         }
         .padding(16)
         .frame(width: 300)
+        .fixedSize(horizontal: false, vertical: true)
         .background(Obsidian.bg)
+        .transaction { $0.animation = nil }  // Kill all implicit animations on this tree
         .onAppear {
             monitor.addObserver()
         }
         .onDisappear {
             monitor.removeObserver()
         }
+    }
+
+    private var lastMessagePreview: String {
+        if let last = viewModel.messages.last(where: { $0.role == .assistant }) {
+            return String(last.content.prefix(120))
+        }
+        return "Ready. All processing on this Mac."
     }
 
     private var separator: some View {
@@ -120,25 +122,24 @@ struct MenuBarView: View {
 
 // MARK: - Live Indicator (isolated animation)
 
-/// Separate view so the repeating opacity animation doesn't
-/// propagate up and cause the MenuBarExtra popover to re-layout.
+/// Uses TimelineView for the pulse instead of withAnimation(.repeatForever)
+/// because SwiftUI animation state changes inside MenuBarExtra(.window)
+/// cause the popover to re-trigger its entrance transition.
 private struct LiveIndicator: View {
-    @State private var pulse = false
-
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.system(size: 8))
-                .foregroundStyle(.green)
-                .opacity(pulse ? 1.0 : 0.4)
+        TimelineView(.periodic(from: .now, by: 0.05)) { timeline in
+            let seconds = timeline.date.timeIntervalSinceReferenceDate
+            let opacity = 0.4 + 0.6 * (0.5 + 0.5 * sin(seconds * 2.0))
 
-            Text("On-Device")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.green.opacity(0.7))
-        }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                pulse = true
+            HStack(spacing: 4) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.green)
+                    .opacity(opacity)
+
+                Text("On-Device")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.green.opacity(0.7))
             }
         }
     }
@@ -180,7 +181,6 @@ private struct SystemGaugesView: View {
                         style: StrokeStyle(lineWidth: 3, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
-                    .animation(.easeInOut(duration: 0.8), value: value)
 
                 Text("\(Int(value * 100))")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))

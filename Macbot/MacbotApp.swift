@@ -8,15 +8,7 @@ struct MacbotApp: App {
 
     var body: some Scene {
         MenuBarExtra("Macbot", systemImage: "brain") {
-            if appState.isReady, let vm = appState.chatViewModel {
-                MenuBarView(viewModel: vm)
-            } else {
-                VStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Connecting...").font(.caption)
-                }
-                .padding()
-            }
+            MenuBarContent(appState: appState)
         }
         .menuBarExtraStyle(.window)
 
@@ -105,5 +97,30 @@ final class AppState {
             // Prewarm models in background (never blocks UI)
             await self.orchestrator.prewarm()
         }
+    }
+}
+
+/// Stable wrapper for MenuBarExtra content.
+/// Renders a fixed-size frame immediately so the .window popover never
+/// re-animates its entrance when @Observable state changes inside.
+struct MenuBarContent: View {
+    let appState: AppState
+
+    var body: some View {
+        Group {
+            if appState.isReady, let vm = appState.chatViewModel {
+                MenuBarView(viewModel: vm)
+            } else {
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Connecting...").font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+                .frame(width: 300, height: 200)
+            }
+        }
+        .frame(width: 300)
+        .animation(nil, value: appState.isReady)
     }
 }
