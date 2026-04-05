@@ -368,7 +368,12 @@ class BaseAgent {
                         }
                         let labels = toolNames.map { Self.toolLabels[$0] ?? $0 }
                         let stepLabel = labels.joined(separator: ", ")
-                        continuation.yield(.status("Step \(stepCount): \(stepLabel)..."))
+
+                        // Clean status: capitalize first label, no "Step N" for single-step tasks
+                        let statusText = stepCount == 1
+                            ? "\(stepLabel.prefix(1).uppercased())\(stepLabel.dropFirst())..."
+                            : "Step \(stepCount): \(stepLabel)..."
+                        continuation.yield(.status(statusText))
 
                         let imagePattern = try? NSRegularExpression(pattern: "\\[IMAGE:(.*?)\\]")
                         let results = await toolRegistry.executeAll(toolCalls)
@@ -397,7 +402,12 @@ class BaseAgent {
                             }
                         }
 
-                        continuation.yield(.status("Step \(stepCount): \(stepLabel) — done. Thinking..."))
+                        // Only show "Thinking..." if no images were produced
+                        // (if images were yielded, the user already sees the result)
+                        let producedImages = results.contains { $0.1.contains("[IMAGE:") }
+                        if !producedImages {
+                            continuation.yield(.status("Step \(stepCount): \(stepLabel) — done. Thinking..."))
+                        }
 
                         // ReAct reflection after multiple tool calls
                         if reflectionEnabled && totalToolCalls >= reflectionThreshold {
