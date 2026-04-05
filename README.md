@@ -2,7 +2,7 @@
 
 Native macOS AI agent — privacy-first, all processing on-device.
 
-Built with SwiftUI. Runs models locally via MLX (Apple Silicon native) with Ollama fallback. Multi-agent orchestration, semantic memory, RAG pipeline, speculative decoding, and deep system introspection.
+Built with SwiftUI. Runs models locally via Ollama (llama.cpp Metal backend) for maximum performance. Multi-agent orchestration, semantic memory, RAG pipeline, and deep system introspection.
 
 ## Architecture
 
@@ -25,14 +25,10 @@ Built with SwiftUI. Runs models locally via MLX (Apple Silicon native) with Olla
            └──────────┴─────┬─────┴───────────┴──────────┘
                             │
               ┌─────────────▼──────────────┐
-              │   Hybrid Inference Engine   │
-              │                            │
-              │  MLX Client (Metal GPU)    │
-              │    Qwen2 · Gemma · Mistral │
-              │    Speculative Decoding    │
-              │    KV Cache Management     │
-              │         ↓ fallback         │
-              │  Ollama Client (HTTP)      │
+              │    Ollama (llama.cpp)      │
+              │    Metal GPU Backend       │
+              │    Optimized Quantization  │
+              │    Flash Attention         │
               └─────────────┬──────────────┘
                             │
          ┌──────────────────┼──────────────────┐
@@ -85,23 +81,21 @@ Built with SwiftUI. Runs models locally via MLX (Apple Silicon native) with Olla
 
 Default configuration (adjusts based on hardware):
 
-| Role | Model | Architecture | Context | Backend | Use |
-|------|-------|-------------|---------|---------|-----|
-| General | gemma4:26b-a4b | Gemma 4 MoE (4B active / 26B total) | 128k | MLX | Conversation, planning, tools, research |
-| Coder | devstral-small-2 | Mistral | 128k | MLX | Code generation, debugging, review |
-| Reasoner | deepseek-r1:14b | Qwen2 (distilled) | 32k | MLX | Math, logic, step-by-step analysis |
-| Vision | qwen3-vl:8b | Qwen2-VL | 16k | Ollama | Image analysis, OCR |
-| Router | qwen3.5:0.8b | Qwen2 | 4k | MLX | Message classification (LLM fallback) |
-| Embedding | qwen3-embedding:0.6b | Qwen2 | 2k | Ollama | Semantic search, routing centroids |
+| Role | Model | Context | Use |
+|------|-------|---------|-----|
+| General | qwen3.5:9b | 32k | Conversation, planning, tools, research |
+| Coder | devstral-small-2 | 65k | Code generation, debugging, review |
+| Reasoner | deepseek-r1:14b | 32k | Math, logic, step-by-step analysis |
+| Vision | qwen3-vl:8b | 16k | Image analysis, OCR |
+| Router | qwen3.5:0.8b | 4k | Message classification (LLM fallback) |
+| Embedding | qwen3-embedding:0.6b | 2k | Semantic search, routing centroids |
 
 ## Features
 
 **Inference**
-- Hybrid MLX/Ollama backend — MLX runs on Metal GPU, falls back to Ollama transparently
-- Three model architectures: Qwen2, Gemma 4 (with MoE expert routing), Mistral
-- Speculative decoding — draft model (0.8B) generates candidates, target verifies in one pass
-- Automatic model download from HuggingFace Hub on first use
-- Hardware-aware model selection with dynamic quantization (Q2–F16)
+- Ollama backend with llama.cpp Metal GPU acceleration — battle-tested, optimized quantized kernels
+- Hardware-aware model selection based on chip, RAM, GPU cores, and memory bandwidth
+- Supports all Ollama-compatible models out of the box
 
 **Agents**
 - Five specialized agents: General, Coder, Reasoner, Vision, Knowledge (RAG)
@@ -161,8 +155,8 @@ Default configuration (adjusts based on hardware):
 ## Requirements
 
 - macOS 14+
-- Apple Silicon (for MLX inference) or Intel (Ollama only)
-- [Ollama](https://ollama.com) installed (required for vision, embeddings, and as fallback)
+- Apple Silicon or Intel
+- [Ollama](https://ollama.com) installed and running
 
 ## Build
 

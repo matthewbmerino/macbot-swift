@@ -12,25 +12,10 @@ final class Orchestrator {
     var modelConfig: ModelConfig
     var soulPrompt: String
 
-    /// Which inference backend to use.
-    /// Default to Ollama until MLX weight loading is fully validated.
-    /// Switch to .hybrid or .mlx via /backend command when ready.
-    var inferenceBackend: InferenceBackend = .ollama
-
-    enum InferenceBackend: String {
-        case ollama    // Standard Ollama HTTP
-        case mlx       // Native MLX on Apple Silicon
-        case hybrid    // MLX with Ollama fallback (recommended)
-    }
-
-    /// Active inference provider based on backend selection
-    var activeClient: any InferenceProvider {
-        switch inferenceBackend {
-        case .ollama: return client
-        case .mlx: return mlxClient ?? client
-        case .hybrid: return mlxClient ?? client
-        }
-    }
+    /// Ollama handles all inference. Its llama.cpp Metal backend is faster
+    /// than our MLX implementation and battle-tested. MLX code remains for
+    /// future development but is not in the generation path.
+    var activeClient: any InferenceProvider { client }
 
     private var conversations: [String: ConversationState] = [:]
     private var userLocks: [String: NSLock] = [:]
@@ -98,13 +83,8 @@ final class Orchestrator {
         self.modelConfig = modelConfig
         self.soulPrompt = soulPrompt ?? Self.defaultSoul
 
-        // Set inference backend from config
-        if let backend = InferenceBackend(rawValue: modelConfig.backend) {
-            self.inferenceBackend = backend
-        }
-
         // Connect embedding client to memory store for semantic search
-        memoryStore.embeddingClient = activeClient
+        memoryStore.embeddingClient = client
         memoryStore.embeddingModel = modelConfig.embedding
     }
 
@@ -219,11 +199,6 @@ final class Orchestrator {
         await w3
         await w4
         await w5
-
-        // Enable speculative decoding if we have a draft model
-        if let mlx = mlxClient {
-            mlx.enableSpeculativeDecoding(draftModel: modelConfig.router)
-        }
 
         Log.app.info("[orchestrator] prewarm complete")
     }
@@ -626,11 +601,10 @@ final class Orchestrator {
             let memCount = memoryStore.recall(limit: 1000).count
             let chunkCount = chunkStore.totalChunkCount()
             let ingestedFiles = chunkStore.ingestedFiles()
-            let mlxStatus = mlxClient != nil ? "available" : "unavailable"
             return """
             Models: \(names)
             Agent: \(conv.currentAgent.displayName)
-            Backend: \(inferenceBackend.rawValue) (MLX: \(mlxStatus))
+            Backend: Ollama (llama.cpp Metal)
             Memories: \(memCount) (vector-indexed)
             Knowledge base: \(chunkCount) chunks from \(ingestedFiles.count) files
             Parallel agents: \(parallelAgentsEnabled ? "on" : "off")
@@ -701,19 +675,7 @@ final class Orchestrator {
             }
 
         case "/backend":
-            switch rest.lowercased() {
-            case "mlx":
-                inferenceBackend = .mlx
-                return "Switched to MLX inference (Apple Silicon native)."
-            case "ollama":
-                inferenceBackend = .ollama
-                return "Switched to Ollama inference."
-            case "hybrid":
-                inferenceBackend = .hybrid
-                return "Switched to hybrid inference (MLX with Ollama fallback)."
-            default:
-                return "Current backend: \(inferenceBackend.rawValue). Options: mlx, ollama, hybrid"
-            }
+            return "Backend: Ollama (llama.cpp Metal). All inference runs through Ollama for maximum performance."
 
         case "/parallel":
             parallelAgentsEnabled.toggle()
@@ -764,7 +726,7 @@ final class Orchestrator {
               /memories [category] — list memories
               /learn <name> | <desc> | <trigger> — create a reusable workflow
               /workflows — list learned workflows
-              /backend [mlx|ollama|hybrid] — switch inference backend
+              /backend — show inference backend info
               /parallel — toggle parallel agent execution
               /moa — toggle Mixture of Agents
               /clear — reset conversation
