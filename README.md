@@ -83,12 +83,13 @@ Default configuration (adjusts based on hardware):
 
 | Role | Model | Context | Use |
 |------|-------|---------|-----|
-| General | qwen3.5:9b | 32k | Conversation, planning, tools, research |
+| General + Vision | gemma4:e4b | 128k | Conversation, planning, tools, research, image analysis |
 | Coder | devstral-small-2 | 65k | Code generation, debugging, review |
 | Reasoner | deepseek-r1:14b | 32k | Math, logic, step-by-step analysis |
-| Vision | qwen3-vl:8b | 16k | Image analysis, OCR |
 | Router | qwen3.5:0.8b | 4k | Message classification (LLM fallback) |
 | Embedding | qwen3-embedding:0.6b | 2k | Semantic search, routing centroids |
+
+Gemma 4 handles both text and vision natively — no separate vision model needed. Scales by hardware: `gemma4:e2b` (8GB RAM), `gemma4:e4b` (16-18GB), `gemma4:26b` (32GB+).
 
 ## Features
 

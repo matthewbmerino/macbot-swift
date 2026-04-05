@@ -36,13 +36,12 @@ enum ModelRecommender {
     // mlxAvailable flag indicates if an MLX-community quantized version exists
     static let catalog: [AgentCategory: [ModelCandidate]] = [
         .general: [
-            // Gemma 4 MoE: 26B total but only 4B active — best intelligence per inference cost
-            ModelCandidate(name: "gemma4:26b-a4b", params: 4, totalParams: 26, mlxAvailable: true),
-            ModelCandidate(name: "qwen3.5:30b", params: 30, mlxAvailable: true),
-            ModelCandidate(name: "qwen3.5:9b", params: 9, mlxAvailable: true),
-            ModelCandidate(name: "gemma4:e4b", params: 4, mlxAvailable: true),
-            ModelCandidate(name: "qwen3.5:4b", params: 4, mlxAvailable: true),
-            ModelCandidate(name: "gemma4:e2b", params: 2, mlxAvailable: true),
+            // Gemma 4: native vision + text, replaces both general and vision agents
+            ModelCandidate(name: "gemma4:26b", params: 4, totalParams: 26), // 18GB — 32GB+ RAM
+            ModelCandidate(name: "gemma4:e4b", params: 4, totalParams: 8),  // 9.6GB — 16-18GB RAM
+            ModelCandidate(name: "qwen3.5:9b", params: 9),                  // 6.6GB — fallback
+            ModelCandidate(name: "gemma4:e2b", params: 2, totalParams: 5),  // 7.2GB — 8GB RAM
+            ModelCandidate(name: "qwen3.5:4b", params: 4),                  // 3.3GB — low RAM
         ],
         .coder: [
             ModelCandidate(name: "devstral-small-2", params: 24),
@@ -50,8 +49,10 @@ enum ModelRecommender {
             ModelCandidate(name: "qwen2.5-coder:7b", params: 7, mlxAvailable: true),
         ],
         .vision: [
-            ModelCandidate(name: "qwen3-vl:8b", params: 8),
-            ModelCandidate(name: "qwen3-vl:4b", params: 4),
+            // Gemma 4 handles vision natively — shared with general agent
+            ModelCandidate(name: "gemma4:e4b", params: 4, totalParams: 8),
+            ModelCandidate(name: "gemma4:e2b", params: 2, totalParams: 5),
+            ModelCandidate(name: "qwen3-vl:8b", params: 8),  // fallback
         ],
         .reasoner: [
             ModelCandidate(name: "deepseek-r1:14b", params: 14, mlxAvailable: true),
