@@ -10,7 +10,7 @@ struct MessageBubble: View {
         VStack(alignment: .leading, spacing: 4) {
             // Header
             HStack(spacing: 6) {
-                Image(systemName: message.role == .user ? "person.circle.fill" : "brain")
+                Image(systemName: message.role == .user ? "person.circle.fill" : "cube.transparent")
                     .font(.caption)
                     .foregroundStyle(message.role == .user ? .primary : Color.accentColor)
 

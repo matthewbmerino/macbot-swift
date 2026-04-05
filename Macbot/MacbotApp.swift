@@ -7,7 +7,7 @@ struct MacbotApp: App {
     @State private var appState = AppState()
 
     var body: some Scene {
-        MenuBarExtra("Macbot", systemImage: "brain") {
+        MenuBarExtra("Macbot", systemImage: "cube.transparent") {
             MenuBarContent(appState: appState)
         }
         .menuBarExtraStyle(.window)

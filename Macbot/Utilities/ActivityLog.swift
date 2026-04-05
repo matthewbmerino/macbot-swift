@@ -28,7 +28,7 @@ struct ActivityEntry: Identifiable {
         var icon: String {
             switch self {
             case .routing: "arrow.triangle.branch"
-            case .inference: "brain"
+            case .inference: "cube.transparent"
             case .tool: "wrench.and.screwdriver"
             case .memory: "memorychip"
             case .system: "gearshape"

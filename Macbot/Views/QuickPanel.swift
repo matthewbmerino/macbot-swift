@@ -170,7 +170,7 @@ struct QuickPanelView: View {
         VStack(spacing: 0) {
             // Input row
             HStack(spacing: 10) {
-                Image(systemName: "brain")
+                Image(systemName: "cube.transparent")
                     .foregroundStyle(Color.accentColor)
                     .font(.body)
 

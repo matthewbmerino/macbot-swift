@@ -18,7 +18,7 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             // Header
             HStack(spacing: 12) {
-                Image(systemName: "brain")
+                Image(systemName: "cube.transparent")
                     .font(.title)
                     .foregroundStyle(Color.accentColor)
                 VStack(alignment: .leading) {

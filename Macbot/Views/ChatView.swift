@@ -46,7 +46,7 @@ struct ChatView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack(spacing: 8) {
-                Image(systemName: "brain")
+                Image(systemName: "cube.transparent")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.8))
 
@@ -311,7 +311,7 @@ struct ChatView: View {
                 Circle()
                     .fill(.white.opacity(0.03))
                     .frame(width: 80, height: 80)
-                Image(systemName: "brain")
+                Image(systemName: "cube.transparent")
                     .font(.system(size: 32, weight: .thin))
                     .foregroundStyle(ODS.textTertiary)
             }

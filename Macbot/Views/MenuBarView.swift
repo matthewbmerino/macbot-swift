@@ -19,7 +19,7 @@ struct MenuBarView: View {
         VStack(spacing: 14) {
             // Header
             HStack(spacing: 8) {
-                Image(systemName: "brain")
+                Image(systemName: "cube.transparent")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.9))
 
