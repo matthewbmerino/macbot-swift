@@ -86,10 +86,10 @@ class GemmaRMSNorm: Module, UnaryLayer {
 
 /// Hybrid attention: sliding window (most layers) or full global (6 layers).
 class GemmaAttention: Module {
-    @ModuleInfo var qProj: Linear
-    @ModuleInfo var kProj: Linear
-    @ModuleInfo var vProj: Linear
-    @ModuleInfo var oProj: Linear
+    @ModuleInfo(key: "q_proj") var qProj: Linear
+    @ModuleInfo(key: "k_proj") var kProj: Linear
+    @ModuleInfo(key: "v_proj") var vProj: Linear
+    @ModuleInfo(key: "o_proj") var oProj: Linear
     let numHeads: Int
     let numKVHeads: Int
     let headDim: Int
@@ -181,9 +181,9 @@ class GemmaAttention: Module {
 
 /// Dense feed-forward used in non-MoE layers or as the base FFN.
 class GemmaMLP: Module {
-    @ModuleInfo var gateProj: Linear
-    @ModuleInfo var upProj: Linear
-    @ModuleInfo var downProj: Linear
+    @ModuleInfo(key: "gate_proj") var gateProj: Linear
+    @ModuleInfo(key: "up_proj") var upProj: Linear
+    @ModuleInfo(key: "down_proj") var downProj: Linear
 
     init(hiddenSize: Int, intermediateSize: Int) {
         self._gateProj.wrappedValue = Linear(hiddenSize, intermediateSize, bias: false)
@@ -202,9 +202,9 @@ class GemmaMLP: Module {
 
 /// Single expert in the Mixture of Experts layer.
 class GemmaExpert: Module {
-    @ModuleInfo var gateProj: Linear
-    @ModuleInfo var upProj: Linear
-    @ModuleInfo var downProj: Linear
+    @ModuleInfo(key: "gate_proj") var gateProj: Linear
+    @ModuleInfo(key: "up_proj") var upProj: Linear
+    @ModuleInfo(key: "down_proj") var downProj: Linear
 
     init(hiddenSize: Int, intermediateSize: Int) {
         self._gateProj.wrappedValue = Linear(hiddenSize, intermediateSize, bias: false)
@@ -223,6 +223,7 @@ class GemmaExpert: Module {
 class GemmaMoELayer: Module {
     @ModuleInfo var gate: Linear
     @ModuleInfo var experts: [GemmaExpert]
+    // gate and experts match HF keys directly
     let numExperts: Int
     let topK: Int
 
@@ -298,13 +299,13 @@ class GemmaMoELayer: Module {
 
 /// Single transformer decoder layer — contains attention + MoE/Dense FFN.
 class GemmaDecoderLayer: Module {
-    @ModuleInfo var selfAttn: GemmaAttention
+    @ModuleInfo(key: "self_attn") var selfAttn: GemmaAttention
     @ModuleInfo var mlp: GemmaMLP
-    @ModuleInfo var moeLayer: GemmaMoELayer?
-    @ModuleInfo var inputLayernorm: GemmaRMSNorm
-    @ModuleInfo var postAttentionLayernorm: GemmaRMSNorm
-    @ModuleInfo var preFeedforwardLayernorm: GemmaRMSNorm
-    @ModuleInfo var postFeedforwardLayernorm: GemmaRMSNorm
+    @ModuleInfo(key: "block_sparse_moe") var moeLayer: GemmaMoELayer?
+    @ModuleInfo(key: "input_layernorm") var inputLayernorm: GemmaRMSNorm
+    @ModuleInfo(key: "post_attention_layernorm") var postAttentionLayernorm: GemmaRMSNorm
+    @ModuleInfo(key: "pre_feedforward_layernorm") var preFeedforwardLayernorm: GemmaRMSNorm
+    @ModuleInfo(key: "post_feedforward_layernorm") var postFeedforwardLayernorm: GemmaRMSNorm
     let isMoE: Bool
 
     init(config: GemmaConfig, layerIndex: Int, useMoE: Bool) {
@@ -349,10 +350,10 @@ class GemmaDecoderLayer: Module {
 
 /// Complete Gemma 4 decoder model with MoE support.
 class GemmaModel: Module {
-    @ModuleInfo var embedTokens: Embedding
+    @ModuleInfo(key: "embed_tokens") var embedTokens: Embedding
     @ModuleInfo var layers: [GemmaDecoderLayer]
     @ModuleInfo var norm: GemmaRMSNorm
-    @ModuleInfo var lmHead: Linear?
+    @ModuleInfo(key: "lm_head") var lmHead: Linear?
     let vocabSize: Int
     let hiddenSize: Int
     let tiedEmbeddings: Bool

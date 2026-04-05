@@ -38,10 +38,10 @@ struct MistralConfig {
 // MARK: - Mistral Attention
 
 class MistralAttention: Module {
-    @ModuleInfo var qProj: Linear
-    @ModuleInfo var kProj: Linear
-    @ModuleInfo var vProj: Linear
-    @ModuleInfo var oProj: Linear
+    @ModuleInfo(key: "q_proj") var qProj: Linear
+    @ModuleInfo(key: "k_proj") var kProj: Linear
+    @ModuleInfo(key: "v_proj") var vProj: Linear
+    @ModuleInfo(key: "o_proj") var oProj: Linear
     let numHeads: Int
     let numKVHeads: Int
     let headDim: Int
@@ -111,9 +111,9 @@ class MistralAttention: Module {
 // MARK: - Mistral MLP (SwiGLU — same as Qwen/LLaMA)
 
 class MistralMLP: Module {
-    @ModuleInfo var gateProj: Linear
-    @ModuleInfo var upProj: Linear
-    @ModuleInfo var downProj: Linear
+    @ModuleInfo(key: "gate_proj") var gateProj: Linear
+    @ModuleInfo(key: "up_proj") var upProj: Linear
+    @ModuleInfo(key: "down_proj") var downProj: Linear
 
     init(hiddenSize: Int, intermediateSize: Int) {
         self._gateProj.wrappedValue = Linear(hiddenSize, intermediateSize, bias: false)
@@ -130,10 +130,10 @@ class MistralMLP: Module {
 // MARK: - Mistral Decoder Layer
 
 class MistralDecoderLayer: Module {
-    @ModuleInfo var selfAttn: MistralAttention
+    @ModuleInfo(key: "self_attn") var selfAttn: MistralAttention
     @ModuleInfo var mlp: MistralMLP
-    @ModuleInfo var inputLayernorm: RMSNorm
-    @ModuleInfo var postAttentionLayernorm: RMSNorm
+    @ModuleInfo(key: "input_layernorm") var inputLayernorm: RMSNorm
+    @ModuleInfo(key: "post_attention_layernorm") var postAttentionLayernorm: RMSNorm
 
     init(config: MistralConfig) {
         self._selfAttn.wrappedValue = MistralAttention(config: config)
@@ -163,10 +163,10 @@ class MistralDecoderLayer: Module {
 // MARK: - Full Mistral Model
 
 class MistralModel: Module {
-    @ModuleInfo var embedTokens: Embedding
+    @ModuleInfo(key: "embed_tokens") var embedTokens: Embedding
     @ModuleInfo var layers: [MistralDecoderLayer]
     @ModuleInfo var norm: RMSNorm
-    @ModuleInfo var lmHead: Linear
+    @ModuleInfo(key: "lm_head") var lmHead: Linear
     let vocabSize: Int
 
     init(config: MistralConfig) {

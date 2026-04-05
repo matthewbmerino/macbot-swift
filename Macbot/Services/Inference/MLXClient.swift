@@ -98,10 +98,10 @@ class RMSNorm: Module, UnaryLayer {
 
 /// Multi-head attention with RoPE for Qwen2.
 class QwenAttention: Module {
-    @ModuleInfo var qProj: Linear
-    @ModuleInfo var kProj: Linear
-    @ModuleInfo var vProj: Linear
-    @ModuleInfo var oProj: Linear
+    @ModuleInfo(key: "q_proj") var qProj: Linear
+    @ModuleInfo(key: "k_proj") var kProj: Linear
+    @ModuleInfo(key: "v_proj") var vProj: Linear
+    @ModuleInfo(key: "o_proj") var oProj: Linear
     let numHeads: Int
     let numKVHeads: Int
     let headDim: Int
@@ -171,9 +171,9 @@ class QwenAttention: Module {
 
 /// Feed-forward network (SwiGLU) for Qwen2.
 class QwenMLP: Module {
-    @ModuleInfo var gateProj: Linear
-    @ModuleInfo var upProj: Linear
-    @ModuleInfo var downProj: Linear
+    @ModuleInfo(key: "gate_proj") var gateProj: Linear
+    @ModuleInfo(key: "up_proj") var upProj: Linear
+    @ModuleInfo(key: "down_proj") var downProj: Linear
 
     init(hiddenSize: Int, intermediateSize: Int) {
         self._gateProj.wrappedValue = Linear(hiddenSize, intermediateSize, bias: false)
@@ -189,10 +189,10 @@ class QwenMLP: Module {
 
 /// Single transformer decoder layer for Qwen2.
 class QwenDecoderLayer: Module {
-    @ModuleInfo var selfAttn: QwenAttention
+    @ModuleInfo(key: "self_attn") var selfAttn: QwenAttention
     @ModuleInfo var mlp: QwenMLP
-    @ModuleInfo var inputLayernorm: RMSNorm
-    @ModuleInfo var postAttentionLayernorm: RMSNorm
+    @ModuleInfo(key: "input_layernorm") var inputLayernorm: RMSNorm
+    @ModuleInfo(key: "post_attention_layernorm") var postAttentionLayernorm: RMSNorm
 
     init(hiddenSize: Int, intermediateSize: Int, numHeads: Int, numKVHeads: Int, rmsNormEps: Float, ropeTheta: Float) {
         self._selfAttn.wrappedValue = QwenAttention(hiddenSize: hiddenSize, numHeads: numHeads, numKVHeads: numKVHeads, ropeTheta: ropeTheta)
@@ -221,10 +221,10 @@ class QwenDecoderLayer: Module {
 
 /// Full Qwen2 decoder model.
 class QwenModel: Module {
-    @ModuleInfo var embedTokens: Embedding
+    @ModuleInfo(key: "embed_tokens") var embedTokens: Embedding
     @ModuleInfo var layers: [QwenDecoderLayer]
     @ModuleInfo var norm: RMSNorm
-    @ModuleInfo var lmHead: Linear
+    @ModuleInfo(key: "lm_head") var lmHead: Linear
     let vocabSize: Int
 
     struct Config {
@@ -659,13 +659,17 @@ final class MLXClient: InferenceProvider, @unchecked Sendable {
         for file in safetensorFiles {
             let weights = try loadArrays(url: file)
             for (key, value) in weights {
-                let mappedKey: String
-                if lowerType.contains("gemma") {
-                    mappedKey = mapGemmaWeightKey(key)
-                } else if lowerType.contains("mistral") {
-                    mappedKey = mapMistralWeightKey(key)
-                } else {
-                    mappedKey = mapWeightKey(key)
+                // Strip the "model." prefix (HF convention) — @ModuleInfo(key:)
+                // annotations on our Module properties handle the rest of the mapping.
+                var mappedKey = key
+                if mappedKey.hasPrefix("model.") {
+                    mappedKey = String(mappedKey.dropFirst(6))
+                }
+                // Gemma multimodal wraps text model in "language_model.model."
+                if mappedKey.hasPrefix("language_model.model.") {
+                    mappedKey = String(mappedKey.dropFirst(21))
+                } else if mappedKey.hasPrefix("language_model.") {
+                    mappedKey = String(mappedKey.dropFirst(15))
                 }
                 allWeights[mappedKey] = value
             }
