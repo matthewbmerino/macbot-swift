@@ -198,12 +198,18 @@ class BaseAgent {
         if plan { _ = await generatePlan(input) }
 
         // Pre-filter tools based on message content
-        let tools = await toolRegistry.filteredSpecsAsJSON(for: input)
+        var recentTools: [String] = []
+        var tools = await toolRegistry.filteredSpecsAsJSON(for: input, recentTools: recentTools)
         var toolCallCount = 0
 
         for _ in 0..<10 {
             if tokenCount > Int(Double(numCtx) * 0.75) {
                 await trimHistory()
+            }
+
+            // Re-filter with recency bias so follow-up tool calls are available
+            if !recentTools.isEmpty {
+                tools = await toolRegistry.filteredSpecsAsJSON(for: input, recentTools: recentTools)
             }
 
             let resp = try await client.chat(
@@ -221,10 +227,11 @@ class BaseAgent {
                 return ThinkingStripper.strip(resp.content)
             }
 
-            // Log tool calls
+            // Log tool calls and track for recency bias
             let toolNames = toolCalls.compactMap {
                 ($0["function"] as? [String: Any])?["name"] as? String
             }
+            recentTools = toolNames
             Log.agents.info("[\(self.name)] calling tools: \(toolNames.joined(separator: ", "))")
 
             // Execute tools in parallel
@@ -314,13 +321,18 @@ class BaseAgent {
                         }
                     }
 
-                    let tools = await toolRegistry.filteredSpecsAsJSON(for: input)
+                    var recentTools: [String] = []
+                    var tools = await toolRegistry.filteredSpecsAsJSON(for: input, recentTools: recentTools)
                     var stepCount = 0
                     var totalToolCalls = 0
 
                     for _ in 0..<10 {
                         if tokenCount > Int(Double(numCtx) * 0.75) {
                             await trimHistory()
+                        }
+
+                        if !recentTools.isEmpty {
+                            tools = await toolRegistry.filteredSpecsAsJSON(for: input, recentTools: recentTools)
                         }
 
                         let resp = try await client.chat(
@@ -366,6 +378,7 @@ class BaseAgent {
                         let toolNames = toolCalls.compactMap {
                             ($0["function"] as? [String: Any])?["name"] as? String
                         }
+                        recentTools = toolNames
                         let labels = toolNames.map { Self.toolLabels[$0] ?? $0 }
                         let stepLabel = labels.joined(separator: ", ")
 
