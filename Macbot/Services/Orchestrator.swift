@@ -244,6 +244,19 @@ final class Orchestrator {
         }
     }
 
+    /// Record a clean user → assistant exchange in the canonical transcript
+    /// without borrowing any agent's private history. Used by the parallel
+    /// and Mixture-of-Agents paths where several agents run concurrently and
+    /// their individual per-agent histories diverge — we can't use
+    /// `captureTurn` there because merging divergent tool-call chains from
+    /// three different agents would be nonsense. Instead the caller
+    /// aggregates/synthesizes a single canonical response and we record only
+    /// that.
+    func recordTurn(user: String, assistant: String, into conv: ConversationState) {
+        conv.transcript.append(["role": "user", "content": user])
+        conv.transcript.append(["role": "assistant", "content": assistant])
+    }
+
     init(
         host: String = "http://127.0.0.1:11434",
         modelConfig: ModelConfig = ModelConfig(),
@@ -322,11 +335,14 @@ final class Orchestrator {
         if let parallelCategories = shouldRunParallel(message), !hasImages {
             if mixtureOfAgentsEnabled {
                 Log.agents.info("[orchestrator] user=\(userId) -> MoA with \(parallelCategories.map(\.rawValue))")
+                // mixtureOfAgents records its own turn in the transcript.
                 return try await mixtureOfAgents(conv: conv, message: message, categories: parallelCategories)
             } else if parallelAgentsEnabled {
                 Log.agents.info("[orchestrator] user=\(userId) -> parallel with \(parallelCategories.map(\.rawValue))")
                 let results = try await runParallelAgents(conv: conv, message: message, categories: parallelCategories)
-                return results.map { "[\($0.0.displayName)]\n\($0.1)" }.joined(separator: "\n\n---\n\n")
+                let aggregated = results.map { "[\($0.0.displayName)]\n\($0.1)" }.joined(separator: "\n\n---\n\n")
+                recordTurn(user: message, assistant: aggregated, into: conv)
+                return aggregated
             }
         }
 
@@ -730,7 +746,8 @@ final class Orchestrator {
             )
         ) { [weak self] args in
             let query = args["query"] as? String ?? ""
-            let memories = self?.memoryStore.search(query: query) ?? []
+            guard let store = self?.memoryStore else { return "No memory store available" }
+            let memories = await store.search(query: query)
             if memories.isEmpty { return "No memories matching '\(query)'." }
             return memories.map { "[id=\($0.id ?? 0)] [\($0.category)] \($0.content)" }.joined(separator: "\n")
         }
@@ -825,7 +842,17 @@ final class Orchestrator {
         message: String,
         categories: [AgentCategory]
     ) async throws -> [(AgentCategory, String)] {
-        try await withThrowingTaskGroup(of: (AgentCategory, String).self) { group in
+        // Hydrate each agent from the canonical transcript BEFORE dispatching
+        // so they all see the full prior conversation. This must happen
+        // sequentially on the main task because loadHistoryFromTranscript
+        // mutates agent state. The actual chat calls that follow are safely
+        // parallel because each agent's history is now a private copy.
+        for category in categories {
+            guard let agent = conv.agents[category] else { continue }
+            agent.loadHistoryFromTranscript(conv.transcript)
+        }
+
+        return try await withThrowingTaskGroup(of: (AgentCategory, String).self) { group in
             for category in categories {
                 guard let agent = conv.agents[category] else { continue }
                 group.addTask {
@@ -840,6 +867,12 @@ final class Orchestrator {
             }
             return results
         }
+        // NOTE: this helper deliberately does NOT call captureTurn. Three
+        // agents running concurrently produce three divergent histories with
+        // different tool calls; merging them into the canonical transcript
+        // would be nonsense. The caller is responsible for calling
+        // recordTurn(user:assistant:into:) with the aggregated or
+        // synthesized response.
     }
 
     // MARK: - Mixture of Agents (MoA)
@@ -856,7 +889,9 @@ final class Orchestrator {
         )
 
         guard agentResults.count > 1 else {
-            return agentResults.first?.1 ?? "No agents available."
+            let single = agentResults.first?.1 ?? "No agents available."
+            recordTurn(user: message, assistant: single, into: conv)
+            return single
         }
 
         // Build synthesis prompt with all agent responses
@@ -887,7 +922,9 @@ final class Orchestrator {
             timeout: 60
         )
 
-        return ThinkingStripper.strip(resp.content)
+        let synthesized = ThinkingStripper.strip(resp.content)
+        recordTurn(user: message, assistant: synthesized, into: conv)
+        return synthesized
     }
 
     /// Check if a message would benefit from parallel agent execution.

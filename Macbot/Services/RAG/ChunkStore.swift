@@ -41,7 +41,7 @@ struct DocumentChunk: Codable, FetchableRecord, MutablePersistableRecord, Identi
 }
 
 /// Tracks which files have been ingested and their state.
-struct IngestedFile: Codable, FetchableRecord, PersistableRecord, Identifiable {
+struct IngestedFile: Codable, FetchableRecord, MutablePersistableRecord, Identifiable {
     var id: Int64?
     var filePath: String
     var fileHash: String       // SHA256 of file contents for change detection
@@ -51,6 +51,10 @@ struct IngestedFile: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var modifiedAt: Date       // File modification date at time of ingestion
 
     static let databaseTableName = "ingested_files"
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
 }
 
 /// Storage layer for RAG document chunks with vector search capability.

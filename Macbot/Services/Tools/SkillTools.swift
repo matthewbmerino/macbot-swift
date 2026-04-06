@@ -257,7 +257,10 @@ enum SkillTools {
             request.timeoutInterval = 10
 
             let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            guard let http = response as? HTTPURLResponse else {
+                return .failure("non-HTTP response")
+            }
+            if http.statusCode != 200 {
                 return .failure("HTTP \(http.statusCode)")
             }
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {

@@ -5,7 +5,7 @@ import GRDB
 /// One row = one user→assistant turn. The atomic unit of replay, evaluation,
 /// and learning. Every field needed to reconstruct what happened, why, and
 /// how well it worked.
-struct InteractionTrace: Codable, FetchableRecord, PersistableRecord, Identifiable {
+struct InteractionTrace: Codable, FetchableRecord, MutablePersistableRecord, Identifiable {
     var id: Int64?
     var sessionId: String
     var userId: String
@@ -25,6 +25,10 @@ struct InteractionTrace: Codable, FetchableRecord, PersistableRecord, Identifiab
     var createdAt: Date
 
     static let databaseTableName = "interaction_traces"
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
 
     var embeddingVector: [Float]? {
         guard let data = userMessageEmbedding, !data.isEmpty else { return nil }
@@ -124,7 +128,7 @@ final class TraceStore {
         let metaJSON = (try? JSONSerialization.data(withJSONObject: builder.extraMetadata))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
 
-        var trace = InteractionTrace(
+        let trace = InteractionTrace(
             id: nil,
             sessionId: builder.sessionId,
             userId: builder.userId,
@@ -146,9 +150,11 @@ final class TraceStore {
 
         Task.detached { [trace] in
             do {
-                var t = trace
+                // Shadow the sendable-captured trace inside the closure so
+                // didInsert's mutation stays local and Swift 6 is happy.
                 try await self.dbPool.write { db in
-                    try t.insert(db)
+                    var local = trace
+                    try local.insert(db)
                 }
             } catch {
                 Log.app.error("[trace] insert failed: \(error)")

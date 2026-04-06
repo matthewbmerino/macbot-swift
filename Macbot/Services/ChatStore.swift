@@ -12,7 +12,7 @@ struct ChatRecord: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "chats"
 }
 
-struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifiable {
+struct ChatMessageRecord: Codable, FetchableRecord, MutablePersistableRecord, Identifiable {
     var id: Int64?
     var chatId: String
     var role: String
@@ -21,6 +21,10 @@ struct ChatMessageRecord: Codable, FetchableRecord, PersistableRecord, Identifia
     var createdAt: Date
 
     static let databaseTableName = "chat_messages"
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
 }
 
 final class ChatStore {

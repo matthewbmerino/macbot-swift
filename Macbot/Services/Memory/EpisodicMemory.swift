@@ -4,7 +4,7 @@ import GRDB
 /// An auto-summarized chunk of conversation history. Episodes give macbot a
 /// sense of continuity across sessions: "what happened last Tuesday" rather
 /// than just key/value memory.
-struct Episode: Codable, FetchableRecord, PersistableRecord, Identifiable {
+struct Episode: Codable, FetchableRecord, MutablePersistableRecord, Identifiable {
     var id: Int64?
     var title: String
     var summary: String
@@ -16,6 +16,10 @@ struct Episode: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var createdAt: Date
 
     static let databaseTableName = "episodes"
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
 
     var topicList: [String] {
         guard let data = topics.data(using: .utf8),
@@ -106,7 +110,7 @@ final class EpisodicMemory {
             let topicsJSON = (try? JSONSerialization.data(withJSONObject: topicArr))
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
 
-            var episode = Episode(
+            let newEpisode = Episode(
                 id: nil,
                 title: title,
                 summary: summary,
@@ -118,11 +122,16 @@ final class EpisodicMemory {
                 createdAt: Date()
             )
 
-            try await dbPool.write { db in
-                try episode.insert(db)
+            // Shadow the struct inside the closure so didInsert's mutation
+            // doesn't cross the concurrent boundary. Return the inserted
+            // copy (which now has its auto-assigned id) to the caller.
+            let savedEpisode = try await dbPool.write { db -> Episode in
+                var local = newEpisode
+                try local.insert(db)
+                return local
             }
             Log.app.info("[episodic] recorded episode: \(title)")
-            return episode
+            return savedEpisode
         } catch {
             Log.app.warning("[episodic] failed to summarize: \(error)")
             return nil

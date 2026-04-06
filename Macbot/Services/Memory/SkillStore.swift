@@ -5,7 +5,7 @@ import GRDB
 /// A distilled lesson from past interactions. The unit of learning.
 /// Retrieved by embedding similarity and injected into agent prompts before
 /// new turns. This is what makes macbot's *behavior* compound with use.
-struct Skill: Codable, FetchableRecord, PersistableRecord, Identifiable {
+struct Skill: Codable, FetchableRecord, MutablePersistableRecord, Identifiable {
     var id: Int64?
     var situation: String       // "When user asks X..."
     var action: String          // "...do Y"
@@ -18,6 +18,10 @@ struct Skill: Codable, FetchableRecord, PersistableRecord, Identifiable {
     var updatedAt: Date
 
     static let databaseTableName = "skills"
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
 
     var embeddingVector: [Float]? {
         guard let data = embedding, !data.isEmpty else { return nil }
@@ -147,7 +151,7 @@ final class SkillStore {
                 embeddingData = nil
             }
 
-            var skill = Skill(
+            let newSkill = Skill(
                 id: nil,
                 situation: situation,
                 action: action,
@@ -159,8 +163,12 @@ final class SkillStore {
                 createdAt: Date(),
                 updatedAt: Date()
             )
+            // Shadow inside the closure so the mutation from `didInsert`
+            // doesn't cross a concurrent-closure boundary (Swift 6
+            // sendable-closure-captures error otherwise).
             try await dbPool.write { db in
-                try skill.insert(db)
+                var local = newSkill
+                try local.insert(db)
             }
             Log.app.info("[skills] learned: \(situation)")
         } catch {

@@ -95,7 +95,9 @@ enum HardwareDetector {
                let coreCount = Int(cores) {
                 return coreCount
             }
-        } catch {}
+        } catch {
+            Log.app.warning("[hardware] GPU core detection via system_profiler failed: \(error.localizedDescription)")
+        }
 
         return 0
     }
@@ -130,7 +132,9 @@ enum HardwareDetector {
                     ?? first["cpu_type"] as? String
                     ?? first["machine_name"] as? String
             }
-        } catch {}
+        } catch {
+            Log.app.warning("[hardware] chip detection via system_profiler failed: \(error.localizedDescription)")
+        }
 
         return nil
     }

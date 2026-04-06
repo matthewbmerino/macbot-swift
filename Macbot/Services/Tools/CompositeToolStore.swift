@@ -5,7 +5,7 @@ import GRDB
 ///
 /// When a user teaches the agent a workflow (e.g., "to deploy, run X then Y then Z"),
 /// we save the sequence as a composite tool that can be invoked later by name.
-struct CompositeTool: Codable, FetchableRecord, PersistableRecord, Identifiable {
+struct CompositeTool: Codable, FetchableRecord, MutablePersistableRecord, Identifiable {
     var id: Int64?
     var name: String              // Tool name (e.g., "deploy_app")
     var description: String       // What this workflow does
@@ -16,6 +16,10 @@ struct CompositeTool: Codable, FetchableRecord, PersistableRecord, Identifiable 
     var updatedAt: Date
 
     static let databaseTableName = "composite_tools"
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
 
     /// Decoded steps.
     var decodedSteps: [ToolStep] {

@@ -162,7 +162,11 @@ enum MediaTools {
             return "Error: unknown action '\(act)'. Use: play, pause, toggle, next, previous"
         }
 
-        _ = await runAppleScript("tell application \"\(appName)\" to \(command)")
+        // appName comes from either a validated branch above or user input;
+        // escape defensively in case a future refactor widens the call site.
+        // `command` is from a closed switch so it's already safe.
+        let safeApp = InjectionSafety.escapeAppleScriptString(appName)
+        _ = await runAppleScript("tell application \"\(safeApp)\" to \(command)")
         return "\(appName): \(act)"
     }
 

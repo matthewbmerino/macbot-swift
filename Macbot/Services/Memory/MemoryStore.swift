@@ -38,7 +38,7 @@ struct Memory: Codable, FetchableRecord, MutablePersistableRecord, Identifiable 
     }
 }
 
-struct ConversationSummary: Codable, FetchableRecord, PersistableRecord, Identifiable {
+struct ConversationSummary: Codable, FetchableRecord, MutablePersistableRecord, Identifiable {
     var id: Int64?
     var userId: String
     var summary: String
@@ -46,6 +46,10 @@ struct ConversationSummary: Codable, FetchableRecord, PersistableRecord, Identif
     var createdAt: Date
 
     static let databaseTableName = "conversations"
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
 }
 
 /// Serial queue actor that processes embedding requests one at a time,
@@ -192,23 +196,22 @@ final class MemoryStore {
     // MARK: - Search (Hybrid: Vector + Keyword)
 
     /// Semantic search using vector similarity, with keyword fallback.
-    func search(query: String, limit: Int = 10) -> [Memory] {
-        // Try semantic search first
+    ///
+    /// Previously this used a `DispatchSemaphore` to bridge the async
+    /// `semanticSearch` call into a synchronous entry point. That pattern is
+    /// rejected by Swift 6 strict concurrency (deadlock-prone when called
+    /// from a serial executor) and the only caller is already async, so the
+    /// function is now async end-to-end and the semaphore is gone.
+    func search(query: String, limit: Int = 10) async -> [Memory] {
+        // Try semantic search first.
         if let client = embeddingClient {
-            let semaphore = DispatchSemaphore(value: 0)
-            var semanticResults: [Memory]?
-
-            Task {
-                semanticResults = await semanticSearch(query: query, limit: limit, client: client)
-                semaphore.signal()
-            }
-
-            if semaphore.wait(timeout: .now() + 5) == .success, let results = semanticResults, !results.isEmpty {
-                return results
+            let semanticResults = await semanticSearch(query: query, limit: limit, client: client)
+            if !semanticResults.isEmpty {
+                return semanticResults
             }
         }
-
-        // Fallback to keyword search
+        // Fallback to keyword search when semantic returns empty or when no
+        // embedding client is configured.
         return keywordSearch(query: query, limit: limit)
     }
 

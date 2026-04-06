@@ -144,15 +144,20 @@ enum MacOSTools {
             }
         }
 
-        // Try open command (catches everything else)
-        if let result = runShell("open -a '\(trimmed)' 2>&1") {
+        // Try open command (catches everything else). Escape for shell
+        // single-quote context so a malicious-looking app name like
+        // `Safari'; rm -rf ~; echo '` can't break out.
+        let shellSafe = InjectionSafety.escapeShellSingleQuote(trimmed)
+        if let result = runShell("open -a '\(shellSafe)' 2>&1") {
             if !result.contains("Unable to find") {
                 return "Opened \(trimmed)"
             }
         }
 
-        // Last resort: AppleScript
-        _ = runAppleScript("tell application \"\(trimmed)\" to activate")
+        // Last resort: AppleScript. Same hardening — escape for AS string
+        // literal so quotes in the name can't terminate the string early.
+        let asSafe = InjectionSafety.escapeAppleScriptString(trimmed)
+        _ = runAppleScript("tell application \"\(asSafe)\" to activate")
         return "Opened \(trimmed)"
     }
 
@@ -197,8 +202,10 @@ enum MacOSTools {
     }
 
     static func sendNotification(title: String, message: String) -> String {
+        let safeTitle = InjectionSafety.escapeAppleScriptString(title)
+        let safeMessage = InjectionSafety.escapeAppleScriptString(message)
         let script = """
-        display notification "\(message)" with title "\(title)"
+        display notification "\(safeMessage)" with title "\(safeTitle)"
         """
         _ = runAppleScript(script)
         return "Notification sent: \(title)"
@@ -522,16 +529,19 @@ enum MacOSTools {
 
     static func quitApp(_ name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        let result = runAppleScript("tell application \"\(trimmed)\" to quit")
+        let asSafe = InjectionSafety.escapeAppleScriptString(trimmed)
+        let result = runAppleScript("tell application \"\(asSafe)\" to quit")
         if let err = result, err.contains("error") {
-            _ = runShell("pkill -i '\(trimmed)' 2>/dev/null")
+            let shellSafe = InjectionSafety.escapeShellSingleQuote(trimmed)
+            _ = runShell("pkill -i '\(shellSafe)' 2>/dev/null")
         }
         return "Quit \(trimmed)"
     }
 
     static func focusApp(_ name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        _ = runAppleScript("tell application \"\(trimmed)\" to activate")
+        let asSafe = InjectionSafety.escapeAppleScriptString(trimmed)
+        _ = runAppleScript("tell application \"\(asSafe)\" to activate")
         return "Focused \(trimmed)"
     }
 
