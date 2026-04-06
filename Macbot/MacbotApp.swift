@@ -5,6 +5,7 @@ import AppKit
 struct MacbotApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState = AppState()
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         MenuBarExtra("Macbot", systemImage: "cube.transparent") {
@@ -13,15 +14,27 @@ struct MacbotApp: App {
         .menuBarExtraStyle(.window)
 
         Window("Macbot", id: "main") {
-            if !appState.authService.isUnlocked {
-                LockScreen(authService: appState.authService)
-            } else if appState.isReady, let vm = appState.chatViewModel {
-                ChatView(viewModel: vm)
-            } else {
-                ProgressView("Connecting to Ollama...")
-                    .frame(width: 300, height: 200)
+            Group {
+                if !appState.authService.isUnlocked {
+                    LockScreen(authService: appState.authService)
+                } else if appState.isReady, let vm = appState.chatViewModel {
+                    ChatView(viewModel: vm)
+                } else {
+                    ProgressView("Connecting to Ollama...")
+                        .frame(width: 300, height: 200)
+                }
+            }
+            .onAppear {
+                // Ensure the window is visible and focused
+                DispatchQueue.main.async {
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                    for window in NSApplication.shared.windows where window.title == "Macbot" {
+                        window.makeKeyAndOrderFront(nil)
+                    }
+                }
             }
         }
+        .applyDefaultLaunchBehavior()
 
         Settings {
             SettingsView()
@@ -33,24 +46,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
-
-        // Open the main window on launch
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            for window in NSApplication.shared.windows where window.title == "Macbot" {
-                window.makeKeyAndOrderFront(nil)
-                return
-            }
-        }
+        showMainWindow()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
-            for window in sender.windows where window.title == "Macbot" {
+        if !flag { showMainWindow() }
+        return true
+    }
+
+    private func showMainWindow() {
+        // Retry until the SwiftUI Window scene has created the NSWindow
+        func attempt(_ remaining: Int) {
+            for window in NSApplication.shared.windows where window.title == "Macbot" {
                 window.makeKeyAndOrderFront(nil)
-                return true
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                return
+            }
+            if remaining > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    attempt(remaining - 1)
+                }
             }
         }
-        return true
+        attempt(10)
     }
 }
 
@@ -123,5 +141,19 @@ struct MenuBarContent: View {
         }
         .frame(width: 300)
         .animation(nil, value: appState.isReady)
+    }
+}
+
+// MARK: - Window Launch Behavior
+
+extension Scene {
+    /// On macOS 15+, tells SwiftUI to show the window on launch.
+    /// On older macOS, no-op (AppDelegate handles it via retry loop).
+    func applyDefaultLaunchBehavior() -> some Scene {
+        if #available(macOS 15.0, *) {
+            return self.defaultLaunchBehavior(.presented)
+        } else {
+            return self
+        }
     }
 }
