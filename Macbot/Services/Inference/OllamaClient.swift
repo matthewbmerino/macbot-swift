@@ -3,7 +3,10 @@ import Foundation
 final class OllamaClient: InferenceProvider, @unchecked Sendable {
     let host: String
     private let session: URLSession
-    private let keepAlive = "4h"
+    // 5 minutes: model unloads shortly after a session, freeing RAM.
+    // Reload on next use is ~1–2s on Apple Silicon — worth it on 18GB Macs
+    // where holding multiple models warm causes swap thrashing.
+    private let keepAlive = "5m"
 
     init(host: String = "http://127.0.0.1:11434") {
         self.host = host
