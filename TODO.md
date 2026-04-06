@@ -31,6 +31,27 @@ to both record structs. Tests `ChunkStoreTests.testInsertAndSemanticSearch`
 and `MemoryStoreTests.testForgetRemovesEntry` document the workaround
 (load from disk, look up id via SQL).
 
+### `OllamaClient.embed` decodes embeddings to `[[Float]]` but gets `[]`
+
+`OllamaClient.embed` does `json["embeddings"] as? [[Float]] ?? []`.
+`JSONSerialization` produces numeric values as `NSNumber`/`Double`, and the
+Swift bridge does **not** coerce `[[Double]]` to `[[Float]]` — the cast
+returns `nil`, so the function silently returns `[]`. This means the
+embedding router, semantic memory search, and RAG hybrid search are likely
+running on the keyword/fallback paths in production rather than the
+intended vector path.
+
+Fix: decode as `[[Double]]` first, then map to `[Float]`:
+
+```swift
+let raw = json["embeddings"] as? [[Double]] ?? []
+return raw.map { $0.map(Float.init) }
+```
+
+`OllamaClientTests.testEmbedRequestShape` documents that the request
+serialization is correct; the response-decoding assertion was removed
+until the bug above is fixed.
+
 ## Refactor candidates
 
 These files exceed 200 lines and are flagged here per the elevation plan.

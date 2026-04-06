@@ -15,6 +15,14 @@ final class OllamaClient: InferenceProvider, @unchecked Sendable {
         self.session = URLSession(configuration: config)
     }
 
+    /// Test-only initializer that accepts a pre-built URLSession (typically
+    /// configured with a custom URLProtocol stub) so the request body can be
+    /// inspected without hitting a real Ollama instance.
+    init(host: String, session: URLSession) {
+        self.host = host
+        self.session = session
+    }
+
     // MARK: - Chat (non-streaming)
 
     func chat(
