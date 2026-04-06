@@ -233,7 +233,7 @@ final class Orchestrator {
         let fallbacks: [String: String] = [
             "general": "qwen3.5:9b",
             "coder": "qwen3.5:9b",
-            "vision": "qwen3-vl:8b",
+            "vision": "gemma4:e4b",
             "reasoner": "qwen3.5:9b",
             "router": "qwen3.5:0.8b",
             "embedding": "qwen3-embedding:0.6b",

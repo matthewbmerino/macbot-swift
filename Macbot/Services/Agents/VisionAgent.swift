@@ -1,7 +1,7 @@
 import Foundation
 
 final class VisionAgent: BaseAgent {
-    init(client: any InferenceProvider, model: String = "qwen3-vl:8b") {
+    init(client: any InferenceProvider, model: String = "gemma4:e4b") {
         super.init(
             name: "vision",
             model: model,

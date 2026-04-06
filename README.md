@@ -21,7 +21,7 @@ Built with SwiftUI. Runs models locally via Ollama (llama.cpp Metal backend) for
             ┌──────────┬──────────┬──────────┼──────────┐
             ▼          ▼          ▼          ▼          ▼
         General     Coder    Reasoner    Vision       RAG
-       qwen3.5    qwen3.5   qwen3.5   qwen3-vl    qwen3.5
+       qwen3.5    qwen3.5   qwen3.5   gemma4:e4b    qwen3.5
          9B         9B        9B          8B          9B
        (shared weights — specialization via system prompt)
             │          │          │          │          │
@@ -81,7 +81,7 @@ active ~8GB, leaving real headroom for the OS.
 | General | qwen3.5:9b | 16k | Conversation, planning, tools |
 | Coder | qwen3.5:9b | 16k | Code generation, debugging (shared weights, coder system prompt) |
 | Reasoner | qwen3.5:9b | 16k | Math, logic, escalated analysis (shared weights) |
-| Vision | qwen3-vl:8b | 8k | Image analysis, screen OCR fallback |
+| Vision | gemma4:e4b | 8k | Image + audio analysis, screen OCR fallback (multimodal) |
 | RAG | qwen3.5:9b | 16k | Knowledge-base queries |
 | Router | qwen3.5:0.8b | 4k | Classification, episode summarization |
 | Embedding | qwen3-embedding:0.6b | 2k | Semantic search, routing centroids |

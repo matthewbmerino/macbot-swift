@@ -11,7 +11,7 @@ import Foundation
 struct ModelConfig: Codable {
     var general: String = "qwen3.5:9b"
     var coder: String = "qwen3.5:9b"        // shared with general — coder agent specializes via prompt
-    var vision: String = "qwen3-vl:8b"
+    var vision: String = "gemma4:e4b"   // multimodal, ~9.6GB, 256k ctx, native vision + audio
     var reasoner: String = "qwen3.5:9b"     // shared with general — reasoner specializes via prompt
     var router: String = "qwen3.5:0.8b"
     var embedding: String = "qwen3-embedding:0.6b"
@@ -81,6 +81,11 @@ struct ModelConfig: Codable {
         }
         if oversized.contains(config.reasoner) {
             config.reasoner = "qwen3.5:9b"
+            migrated = true
+        }
+        // Vision upgrade: qwen3-vl:8b → gemma4:e4b (newer, multimodal w/ audio)
+        if config.vision == "qwen3-vl:8b" || config.vision == "qwen3-vl:8b:latest" {
+            config.vision = "gemma4:e4b"
             migrated = true
         }
         if migrated {
