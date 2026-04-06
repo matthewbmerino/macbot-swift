@@ -86,7 +86,7 @@ final class Orchestrator {
     }
 
     init(
-        host: String = "http://localhost:11434",
+        host: String = "http://127.0.0.1:11434",
         modelConfig: ModelConfig = ModelConfig(),
         soulPrompt: String? = nil
     ) {

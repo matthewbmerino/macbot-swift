@@ -482,7 +482,7 @@ enum SkillTools {
         }
 
         // Ollama status
-        if let ollamaModels = shell("curl -s http://localhost:11434/api/tags 2>/dev/null") {
+        if let ollamaModels = shell("curl -s http://127.0.0.1:11434/api/tags 2>/dev/null") {
             if let data = ollamaModels.data(using: .utf8),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let models = json["models"] as? [[String: Any]] {

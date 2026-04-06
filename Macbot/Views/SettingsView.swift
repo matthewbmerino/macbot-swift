@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @AppStorage("ollamaHost") private var ollamaHost = "http://localhost:11434"
+    @AppStorage("ollamaHost") private var ollamaHost = "http://127.0.0.1:11434"
 
     var body: some View {
         TabView {

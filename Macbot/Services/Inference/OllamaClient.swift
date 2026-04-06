@@ -5,7 +5,7 @@ final class OllamaClient: InferenceProvider, @unchecked Sendable {
     private let session: URLSession
     private let keepAlive = "4h"
 
-    init(host: String = "http://localhost:11434") {
+    init(host: String = "http://127.0.0.1:11434") {
         self.host = host
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 600
