@@ -1,5 +1,7 @@
 # Macbot
 
+[![Build](https://github.com/matthewbmerino/macbot-swift/actions/workflows/build.yml/badge.svg)](https://github.com/matthewbmerino/macbot-swift/actions/workflows/build.yml)
+
 Native macOS AI agent — privacy-first, all processing on-device.
 
 Built with SwiftUI. Runs models locally via Ollama (llama.cpp Metal backend) for maximum performance. Multi-agent orchestration, semantic memory, RAG pipeline, and deep system introspection.
