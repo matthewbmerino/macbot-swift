@@ -337,21 +337,9 @@ struct ChatView: View {
     // MARK: - Typing Indicator
 
     private var typingIndicator: some View {
-        HStack(spacing: 5) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .fill(.white.opacity(0.3))
-                    .frame(width: 5, height: 5)
-                    .animation(
-                        .easeInOut(duration: 0.5)
-                        .repeatForever()
-                        .delay(Double(i) * 0.15),
-                        value: viewModel.isStreaming
-                    )
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
+        TypingDots()
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
     }
 
     // MARK: - Image Preview
@@ -478,5 +466,28 @@ struct AgentBadge: View {
             .background(.white.opacity(0.05))
             .clipShape(Capsule())
             .overlay(Capsule().stroke(Color.white.opacity(0.06), lineWidth: 0.5))
+    }
+}
+
+// MARK: - Animated Typing Dots
+
+private struct TypingDots: View {
+    @State private var phase: Int = 0
+    private let timer = Timer.publish(every: 0.18, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(.white)
+                    .frame(width: 6, height: 6)
+                    .opacity(phase == i ? 0.9 : 0.25)
+                    .scaleEffect(phase == i ? 1.15 : 1.0)
+                    .animation(.easeInOut(duration: 0.18), value: phase)
+            }
+        }
+        .onReceive(timer) { _ in
+            phase = (phase + 1) % 3
+        }
     }
 }
