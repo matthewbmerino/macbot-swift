@@ -219,7 +219,10 @@ enum SkillTools {
                 }
             }
 
-            return lines.joined(separator: "\n")
+            return GroundedResponse.format(
+                source: "wttr.in",
+                body: lines.joined(separator: "\n")
+            )
         } catch {
             return "Weather lookup failed: \(error.localizedDescription)"
         }
@@ -254,14 +257,24 @@ enum SkillTools {
         let cleaned_result = result.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Strip STDERR prefix if present (sandbox warnings)
+        var value = cleaned_result
         if cleaned_result.contains("STDERR:") && cleaned_result.contains("\n") {
-            let lines = cleaned_result.components(separatedBy: "\n")
-            if let firstLine = lines.first, !firstLine.hasPrefix("STDERR:") && !firstLine.hasPrefix("Error") {
-                return firstLine
+            let parts = cleaned_result.components(separatedBy: "\n")
+            if let firstLine = parts.first, !firstLine.hasPrefix("STDERR:") && !firstLine.hasPrefix("Error") {
+                value = firstLine
             }
         }
 
-        return cleaned_result
+        if value.hasPrefix("Error") {
+            return value
+        }
+        // Stable lookup — no timestamp needed; the value is mathematically
+        // exact and the model should quote it character-for-character.
+        return GroundedResponse.format(
+            source: "calculator",
+            timePolicy: .none,
+            body: "\(trimmed) = \(value)"
+        )
     }
 
     // MARK: - Unit Conversion
@@ -340,10 +353,17 @@ enum SkillTools {
     }
 
     private static func formatResult(_ value: Double, unit: String) -> String {
+        let formatted: String
         if value == value.rounded() && abs(value) < 1e12 {
-            return "\(Int(value)) \(unit)"
+            formatted = "\(Int(value)) \(unit)"
+        } else {
+            formatted = "\(String(format: "%.4g", value)) \(unit)"
         }
-        return "\(String(format: "%.4g", value)) \(unit)"
+        return GroundedResponse.format(
+            source: "unit_convert",
+            timePolicy: .none,
+            body: formatted
+        )
     }
 
     // MARK: - Date Calculation
