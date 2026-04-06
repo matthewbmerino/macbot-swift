@@ -78,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @Observable
 final class AppState {
-    let orchestrator = Orchestrator()
+    let orchestrator = Orchestrator(soulPrompt: SoulLoader.load())
     let authService = AuthService()
     var chatViewModel: ChatViewModel?
     var isReady = false

@@ -34,6 +34,9 @@ let package = Package(
                 .product(name: "StableDiffusion", package: "mlx-swift-examples"),
             ],
             path: "Macbot",
+            resources: [
+                .process("Resources"),
+            ],
             linkerSettings: [
                 .linkedFramework("Accelerate"),
                 .linkedFramework("Metal"),
