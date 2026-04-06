@@ -24,7 +24,16 @@ actor ToolRegistry {
         "code": (["run python", "execute", "script", "run code", "pip", "install"], ["run_python", "run_command"]),
         "memory": (["remember", "memory", "recall", "forget", "what do you know"], ["memory_save", "memory_recall", "memory_search", "memory_forget"]),
         "knowledge": (["document", "knowledge", "ingest", "rag", "what does the doc", "from my files", "in my notes"], ["ingest_file", "ingest_directory", "knowledge_search"]),
-        "skills": (["weather", "forecast", "temperature outside", "calculate", "math", "what is", "how many", "convert", "units", "how many days", "days until", "days between", "date", "define", "definition", "meaning of", "dashboard", "system health"], ["weather_lookup", "calculator", "unit_convert", "date_calc", "define_word", "system_dashboard"]),
+        "skills": (["weather", "forecast", "temperature outside", "calculate", "math", "convert", "units", "how many days", "days until", "days between", "define", "definition", "meaning of", "dashboard", "system health"], ["weather_lookup", "calculator", "unit_convert", "date_calc", "define_word", "system_dashboard"]),
+        "summarize": (["summarize", "summary", "tldr", "read this", "what does this page say", "article", "explain this page"], ["summarize_url"]),
+        "text": (["json", "format", "pretty print", "minify", "base64", "encode", "decode", "url encode", "html encode", "regex", "extract pattern"], ["json_format", "encode_decode", "regex_extract"]),
+        "network": (["ping", "dns", "traceroute", "port", "is it up", "reachable", "http check", "nslookup", "domain", "resolve"], ["ping", "dns_lookup", "port_check", "http_check"]),
+        "git": (["git", "commit", "branch", "repo", "merge", "diff", "push", "pull", "status"], ["git_status", "git_log", "git_diff"]),
+        "screen": (["screen", "ocr", "read my screen", "what's on my screen", "extract text", "read the error", "what does it say"], ["screen_ocr", "screen_region_ocr"]),
+        "calendar": (["calendar", "schedule", "event", "meeting", "appointment", "reminder", "remind me", "what's on my", "am i free", "busy", "agenda"], ["calendar_today", "calendar_create", "calendar_week", "reminder_create"]),
+        "email": (["email", "mail", "draft", "compose", "write an email", "send", "inbox", "messages"], ["email_draft", "email_read"]),
+        "media": (["music", "song", "playing", "spotify", "play", "pause", "skip", "next track", "what's playing", "now playing", "volume"], ["now_playing", "media_control", "set_volume", "search_play"]),
+        "qr": (["qr", "qr code", "barcode", "scan code"], ["generate_qr"]),
     ]
 
     // Groups that commonly need each other — if one matches, include the other

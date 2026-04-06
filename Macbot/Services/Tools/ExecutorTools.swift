@@ -20,6 +20,7 @@ enum ExecutorTools {
         "matplotlib", "numpy", "pandas", "scipy", "seaborn",
         "requests", "beautifulsoup4", "bs4", "pillow", "scikit-learn",
         "yfinance", "plotly", "sympy", "openpyxl", "xlsxwriter",
+        "qrcode", "pytesseract", "pyobjc-framework-vision", "pyobjc-framework-quartz",
     ]
 
     /// Install a Python package via pip3. Restricted to allowlist.

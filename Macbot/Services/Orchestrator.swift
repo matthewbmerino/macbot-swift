@@ -361,6 +361,15 @@ final class Orchestrator {
                 await FinanceTools.register(on: agent.toolRegistry)
                 await ChartTools.register(on: agent.toolRegistry)
                 await SkillTools.register(on: agent.toolRegistry)
+                await SummarizeTools.register(on: agent.toolRegistry)
+                await TextTools.register(on: agent.toolRegistry)
+                await NetworkTools.register(on: agent.toolRegistry)
+                await GitTools.register(on: agent.toolRegistry)
+                await ScreenTools.register(on: agent.toolRegistry)
+                await CalendarTools.register(on: agent.toolRegistry)
+                await EmailTools.register(on: agent.toolRegistry)
+                await MediaTools.register(on: agent.toolRegistry)
+                await QRTools.register(on: agent.toolRegistry)
             }
         }
 
@@ -370,6 +379,7 @@ final class Orchestrator {
                 await WebTools.register(on: agent.toolRegistry)
                 await ExecutorTools.register(on: agent.toolRegistry)
                 await SkillTools.register(on: agent.toolRegistry)
+                await ScreenTools.register(on: agent.toolRegistry)
             }
         }
 
