@@ -58,6 +58,7 @@ final class Orchestrator {
         var lastActive: Date
         var consecutiveSameAgent: Int
         var lastMessageTime: Date
+        var messageCount: Int = 0
 
         init(agents: [AgentCategory: BaseAgent]) {
             self.agents = agents
@@ -165,6 +166,9 @@ final class Orchestrator {
         Log.agents.info("[orchestrator] user=\(userId) -> \(agent.name)\(plan ? " [PLANNING]" : "")")
         ActivityLog.shared.log(.routing, "Routed to \(agent.name) agent\(plan ? " with planning" : "")")
 
+        conv.messageCount += 1
+        injectPromptModules(agent: agent, conv: conv, isPlanning: plan, message: message)
+
         return try await agent.run(message, images: images, plan: plan)
     }
 
@@ -212,6 +216,9 @@ final class Orchestrator {
                     let plan = needsPlanning(message)
                     Log.agents.info("[orchestrator] user=\(userId) -> \(agent.name)\(plan ? " [PLANNING]" : "")")
                     ActivityLog.shared.log(.routing, "Routed to \(agent.name) agent\(plan ? " with planning" : "")")
+
+                    conv.messageCount += 1
+                    injectPromptModules(agent: agent, conv: conv, isPlanning: plan, message: message)
 
                     for try await event in agent.runStream(message, images: images, plan: plan) {
                         // Log status events to the activity feed
@@ -353,14 +360,16 @@ final class Orchestrator {
                 await ExecutorTools.register(on: agent.toolRegistry)
                 await FinanceTools.register(on: agent.toolRegistry)
                 await ChartTools.register(on: agent.toolRegistry)
+                await SkillTools.register(on: agent.toolRegistry)
             }
         }
 
-        // Vision + reasoner get lighter tools
+        // Vision + reasoner get lighter tools + skills
         for category in [AgentCategory.vision, .reasoner] {
             if let agent = conv.agents[category] {
                 await WebTools.register(on: agent.toolRegistry)
                 await ExecutorTools.register(on: agent.toolRegistry)
+                await SkillTools.register(on: agent.toolRegistry)
             }
         }
 
@@ -409,6 +418,31 @@ final class Orchestrator {
         }
 
         return parts.joined(separator: "\n\n")
+    }
+
+    // MARK: - Prompt Modules
+
+    private func injectPromptModules(agent: BaseAgent, conv: ConversationState, isPlanning: Bool, message: String) {
+        let range = NSRange(message.startIndex..., in: message)
+        let hasCodeKeywords = Self.codePattern.firstMatch(in: message, range: range) != nil
+
+        let context = PromptContext(
+            agentCategory: conv.currentAgent,
+            lastTool: agent.lastToolUsed,
+            lastToolFailed: agent.lastToolFailed,
+            messageCount: conv.messageCount,
+            isPlanning: isPlanning,
+            hasCodeKeywords: hasCodeKeywords
+        )
+
+        let modules = PromptModules.activeModules(for: context)
+        guard !modules.isEmpty else { return }
+
+        let content = "[Active Context]\n" + modules.joined(separator: "\n")
+        if agent.history.isEmpty {
+            agent.history.append(["role": "system", "content": agent.systemPrompt])
+        }
+        agent.history.append(["role": "system", "content": content])
     }
 
     // MARK: - Memory Tools

@@ -15,6 +15,10 @@ class BaseAgent {
 
     private var tokenCount: Int = 0
 
+    // Tool state tracking for PromptModules
+    var lastToolUsed: String = ""
+    var lastToolFailed: Bool = false
+
     // ReAct reflection — evaluate tool results before responding
     var reflectionEnabled: Bool = true
     private let reflectionThreshold = 5  // Reflect after this many tool calls
@@ -39,9 +43,17 @@ class BaseAgent {
         "ingest_directory": "scanning directory",
         "knowledge_search": "searching knowledge base",
         "generate_chart": "creating chart",
+        "stock_chart": "generating stock chart",
+        "comparison_chart": "comparing stocks",
         "get_stock_price": "checking stock price",
         "get_stock_history": "fetching stock history",
         "get_market_summary": "checking market summary",
+        "weather_lookup": "checking weather",
+        "calculator": "calculating",
+        "unit_convert": "converting units",
+        "date_calc": "calculating dates",
+        "define_word": "looking up definition",
+        "system_dashboard": "checking system health",
     ]
 
     init(
@@ -236,8 +248,10 @@ class BaseAgent {
 
             // Execute tools in parallel
             let results = await toolRegistry.executeAll(toolCalls)
-            for (_, result) in results {
+            for (name, result) in results {
                 appendToHistory(["role": "tool", "content": result])
+                lastToolUsed = name
+                lastToolFailed = result.hasPrefix("Error:")
             }
 
             toolCallCount += toolCalls.count
@@ -390,8 +404,10 @@ class BaseAgent {
 
                         let imagePattern = try? NSRegularExpression(pattern: "\\[IMAGE:(.*?)\\]")
                         let results = await toolRegistry.executeAll(toolCalls)
-                        for (_, result) in results {
+                        for (name, result) in results {
                             appendToHistory(["role": "tool", "content": result])
+                            lastToolUsed = name
+                            lastToolFailed = result.hasPrefix("Error:")
 
                             if let regex = imagePattern {
                                 let range = NSRange(result.startIndex..., in: result)
