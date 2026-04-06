@@ -1,0 +1,45 @@
+# SwiftLint configuration for Macbot.
+#
+# Conservative defaults — this is the first lint baseline for the project,
+# so most "style nudge" rules that would fight existing code are relaxed.
+# Tighten over time as the codebase converges on a style.
+
+included:
+  - Macbot
+  - Tests
+
+excluded:
+  - .build
+  - .swiftpm
+  - Package.swift
+  - Tests/MacbotTests/MockInferenceProvider.swift  # test fixture, intentional shape
+
+disabled_rules:
+  - todo                    # TODO.md tracks these intentionally
+  - trailing_whitespace     # noisy on diffs that aren't about whitespace
+  - identifier_name         # `db`, `id`, `t` are fine in this codebase
+  - nesting                 # GRDB record types nest by design
+  - file_length             # see TODO.md for tracked refactor candidates
+  - type_body_length
+  - function_body_length
+  - cyclomatic_complexity
+  - large_tuple
+
+opt_in_rules:
+  - empty_count
+  - first_where
+  - last_where
+  - sorted_first_last
+  - contains_over_filter_count
+  - redundant_nil_coalescing
+  - explicit_init
+
+line_length:
+  warning: 140
+  error: 200
+  ignores_comments: true
+  ignores_urls: true
+
+force_cast: warning
+force_try: warning
+force_unwrapping: warning

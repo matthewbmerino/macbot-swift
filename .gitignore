@@ -1,5 +1,24 @@
+## macOS
 .DS_Store
+
+## Swift / SwiftPM
 .build/
 .swiftpm/
+Package.resolved.lock
 *.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
 DerivedData/
+
+## Local databases & app data
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+
+## Editor / IDE noise
+.vscode/
+.idea/
+*.swp
+*~
