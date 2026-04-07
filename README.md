@@ -4,11 +4,11 @@
 
 Native macOS AI agent — privacy-first, all processing on-device.
 
-> 📷 **Screenshots:** drop `Assets/chat.png` and `Assets/menubar.png` into the
-> repo and they'll render here. The slots are reserved below.
->
-> ![Chat view](Assets/chat.png)
-> ![Menu bar widget](Assets/menubar.png)
+![Macbot chat — answering "what apps are running right now?" with grounded tool data](Assets/chat.png)
+
+<p align="center">
+  <img src="Assets/menubar.png" alt="Macbot menu bar widget — live CPU / memory / GPU dials with on-device badge" width="360">
+</p>
 
 Built with SwiftUI. Runs models locally via Ollama (llama.cpp Metal backend) for maximum performance. Multi-agent orchestration, semantic memory, RAG pipeline, and deep system introspection.
 
