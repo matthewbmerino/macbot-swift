@@ -1,6 +1,15 @@
 import Foundation
 
 enum WebTools {
+    /// 10-minute TTL cache for DuckDuckGo search responses. Same query
+    /// in the same session shouldn't re-hit the network — DDG is rate-
+    /// limited and the result set is stable enough that 10 min is fine.
+    static let searchCache = ToolCache(ttl: 600, maxEntries: 64)
+    /// 5-minute TTL cache for fetched page bodies. Pages change but
+    /// rarely within a 5-minute window of a single user session.
+    static let pageCache = ToolCache(ttl: 300, maxEntries: 32)
+
+
     static let searchSpec = ToolSpec(
         name: "web_search",
         description: "Search the web using DuckDuckGo. Use for current events, facts, or anything you don't know.",
@@ -89,6 +98,12 @@ enum WebTools {
     static func webSearch(query: String) async -> String {
         guard !query.isEmpty else { return "Error: empty query" }
 
+        // Cache hit: skip the network round trip entirely.
+        let cacheKey = query.lowercased().trimmingCharacters(in: .whitespaces)
+        if let cached = searchCache.get(cacheKey) {
+            return cached
+        }
+
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
         guard let url = URL(string: "https://html.duckduckgo.com/html/?q=\(encoded)") else {
             return "Error: invalid query"
@@ -106,11 +121,13 @@ enum WebTools {
             if results.isEmpty {
                 return "No results found for: \(query)"
             }
-            return GroundedResponse.searchResults(
+            let formatted = GroundedResponse.searchResults(
                 source: "DuckDuckGo",
                 query: query,
                 body: formatDDGResults(results)
             )
+            searchCache.set(cacheKey, value: formatted)
+            return formatted
         } catch {
             return "Search failed: \(error.localizedDescription)"
         }
@@ -141,6 +158,11 @@ enum WebTools {
         }
         guard let url = URL(string: urlString) else { return "Error: invalid URL" }
 
+        // Cache hit: skip the fetch + HTML stripping entirely.
+        if let cached = pageCache.get(urlString) {
+            return cached
+        }
+
         do {
             var request = URLRequest(url: url)
             request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36", forHTTPHeaderField: "User-Agent")
@@ -155,10 +177,12 @@ enum WebTools {
             }
             // Echo the source URL inline so the model cannot fabricate one
             // when quoting from this page later in its response.
-            return GroundedResponse.format(
+            let formatted = GroundedResponse.format(
                 source: "URL \(urlString)",
                 body: text
             )
+            pageCache.set(urlString, value: formatted)
+            return formatted
         } catch {
             return "Failed to fetch page: \(error.localizedDescription)"
         }

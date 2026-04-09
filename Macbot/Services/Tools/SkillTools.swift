@@ -216,9 +216,19 @@ enum SkillTools {
         return candidates.filter { seen.insert($0).inserted }
     }
 
+    /// 5-minute TTL cache for weather lookups. Weather doesn't change
+    /// meaningfully inside a 5-minute window, and wttr.in is shared
+    /// infrastructure that we shouldn't hammer.
+    static let weatherCache = ToolCache(ttl: 300, maxEntries: 32)
+
     static func getWeather(location: String) async -> String {
         let trimmed = location.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return "Error: empty location" }
+
+        let cacheKey = trimmed.lowercased()
+        if let cached = weatherCache.get(cacheKey) {
+            return cached
+        }
 
         let candidates = weatherQueryCandidates(trimmed)
         var lastError = ""
@@ -226,7 +236,9 @@ enum SkillTools {
         for candidate in candidates {
             switch await fetchWeatherJSON(candidate: candidate) {
             case .success(let json):
-                return formatWeatherJSON(json: json, displayLocation: trimmed)
+                let formatted = formatWeatherJSON(json: json, displayLocation: trimmed)
+                weatherCache.set(cacheKey, value: formatted)
+                return formatted
             case .failure(let err):
                 lastError = err
                 Log.tools.warning("[weather] candidate '\(candidate)' failed: \(err)")
