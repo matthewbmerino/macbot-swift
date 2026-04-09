@@ -242,17 +242,97 @@ enum FinanceTools {
         return lines.joined(separator: "\n")
     }
 
+    /// A parsed historical-performance summary for a ticker over a period
+    /// (1d, 5d, 1mo, ytd, 1y, etc.). Pure data — no formatting, no IO.
+    struct StockHistorySummary {
+        let symbol: String
+        let period: String         // normalized period label
+        let startPrice: Double
+        let currentPrice: Double
+        let high: Double
+        let low: Double
+        let tradingDays: Int
+
+        var change: Double { currentPrice - startPrice }
+        var changePct: Double { startPrice > 0 ? (change / startPrice * 100) : 0 }
+    }
+
+    /// Normalize a period string the way Yahoo expects ("year to date" →
+    /// "ytd"). Public so the caller can use the same normalization that
+    /// the parser will see.
+    static func normalizeStockPeriod(_ period: String) -> String {
+        let lower = period.lowercased().trimmingCharacters(in: .whitespaces)
+        if lower == "ytd" || lower.contains("year to date") || lower.contains("year-to-date") {
+            return "ytd"
+        }
+        return period
+    }
+
+    /// Parse a Yahoo v8 chart response for a historical-performance query
+    /// into a StockHistorySummary. Pure function — testable against
+    /// stubbed JSON without hitting the network.
+    static func parseStockHistory(json: [String: Any], symbol: String, period: String) -> StockHistorySummary? {
+        guard let chart = json["chart"] as? [String: Any],
+              let results = chart["result"] as? [[String: Any]],
+              let result = results.first,
+              let meta = result["meta"] as? [String: Any],
+              let indicators = result["indicators"] as? [String: Any],
+              let quotes = (indicators["quote"] as? [[String: Any]])?.first,
+              let closes = quotes["close"] as? [Double?],
+              let highs = quotes["high"] as? [Double?],
+              let lows = quotes["low"] as? [Double?]
+        else {
+            return nil
+        }
+
+        let validCloses = closes.compactMap { $0 }
+        guard !validCloses.isEmpty else { return nil }
+
+        let currentPrice = meta["regularMarketPrice"] as? Double ?? validCloses.last ?? 0
+        guard currentPrice > 0 else { return nil }
+
+        // For YTD specifically: chartPreviousClose IS reliable here because
+        // the chart's "previous close" is Dec 31 of last year, which is
+        // exactly the YTD baseline we want. The intraday-bug pattern
+        // doesn't apply to multi-day ranges.
+        let startPrice: Double
+        if period == "ytd" {
+            startPrice = meta["chartPreviousClose"] as? Double ?? validCloses.first ?? 0
+        } else {
+            startPrice = validCloses.first ?? 0
+        }
+
+        let high = highs.compactMap { $0 }.max() ?? 0
+        let low = lows.compactMap { $0 }.min() ?? 0
+
+        return StockHistorySummary(
+            symbol: symbol,
+            period: period,
+            startPrice: startPrice,
+            currentPrice: currentPrice,
+            high: high,
+            low: low,
+            tradingDays: validCloses.count
+        )
+    }
+
+    /// Format a `StockHistorySummary` into the body string the model sees.
+    static func formatStockHistory(_ h: StockHistorySummary) -> String {
+        let periodLabel = h.period == "ytd" ? "year-to-date" : h.period
+        return """
+        \(h.symbol) — \(periodLabel) performance
+        Start: $\(String(format: "%.2f", h.startPrice))
+        Current: $\(String(format: "%.2f", h.currentPrice))
+        Change: $\(String(format: "%+.2f", h.change)) (\(String(format: "%+.2f", h.changePct))%)
+        Period high: $\(String(format: "%.2f", h.high))
+        Period low: $\(String(format: "%.2f", h.low))
+        Trading days: \(h.tradingDays)
+        """
+    }
+
     private static func getStockHistory(ticker: String, period: String) async -> String {
         let symbol = ticker.uppercased().trimmingCharacters(in: .whitespaces)
-
-        // Normalize period: handle "year to date", "year-to-date", etc.
-        let normalizedPeriod: String
-        let lowerPeriod = period.lowercased().trimmingCharacters(in: .whitespaces)
-        if lowerPeriod == "ytd" || lowerPeriod.contains("year to date") || lowerPeriod.contains("year-to-date") {
-            normalizedPeriod = "ytd"
-        } else {
-            normalizedPeriod = period
-        }
+        let normalizedPeriod = normalizeStockPeriod(period)
 
         guard let url = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(symbol)?interval=1d&range=\(normalizedPeriod)") else {
             return "Error: invalid ticker"
@@ -263,59 +343,108 @@ enum FinanceTools {
             request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
             request.timeoutInterval = 10
 
-            let (data, _) = try await URLSession.shared.data(for: request)
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-
-            guard let chart = json?["chart"] as? [String: Any],
-                  let results = chart["result"] as? [[String: Any]],
-                  let result = results.first,
-                  let meta = result["meta"] as? [String: Any],
-                  let indicators = result["indicators"] as? [String: Any],
-                  let quotes = (indicators["quote"] as? [[String: Any]])?.first,
-                  let closes = quotes["close"] as? [Double?],
-                  let highs = quotes["high"] as? [Double?],
-                  let lows = quotes["low"] as? [Double?]
-            else {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                return "Error fetching \(symbol) history: HTTP \(http.statusCode)"
+            }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return "Error: malformed Yahoo response for \(symbol)"
+            }
+            guard let summary = parseStockHistory(json: json, symbol: symbol, period: normalizedPeriod) else {
                 return "No data for \(symbol) over \(normalizedPeriod)"
             }
 
-            let validCloses = closes.compactMap { $0 }
-            guard !validCloses.isEmpty else {
-                return "No data for \(symbol)"
-            }
-
-            let currentPrice = meta["regularMarketPrice"] as? Double ?? validCloses.last ?? 0
-
-            // For YTD: use chartPreviousClose (Dec 31 close) as the starting price
-            // For other periods: use the first close in the range
-            let startPrice: Double
-            if normalizedPeriod == "ytd" {
-                startPrice = meta["chartPreviousClose"] as? Double ?? validCloses.first ?? 0
-            } else {
-                startPrice = validCloses.first ?? 0
-            }
-
-            let high = highs.compactMap { $0 }.max() ?? 0
-            let low = lows.compactMap { $0 }.min() ?? 0
-            let change = currentPrice - startPrice
-            let changePct = startPrice > 0 ? (change / startPrice * 100) : 0
-
-            let periodLabel = normalizedPeriod == "ytd" ? "year-to-date" : normalizedPeriod
-
-            let body = """
-            \(symbol) — \(periodLabel) performance
-            Start: $\(String(format: "%.2f", startPrice))
-            Current: $\(String(format: "%.2f", currentPrice))
-            Change: $\(String(format: "%+.2f", change)) (\(String(format: "%+.2f", changePct))%)
-            Period high: $\(String(format: "%.2f", high))
-            Period low: $\(String(format: "%.2f", low))
-            Trading days: \(validCloses.count)
-            """
-            return GroundedResponse.format(source: "Yahoo Finance", body: body)
-
+            return GroundedResponse.format(source: "Yahoo Finance", body: formatStockHistory(summary))
         } catch {
             return "Error: \(error.localizedDescription)"
         }
+    }
+
+    /// One row of the market summary table.
+    struct MarketIndexQuote {
+        let displayName: String
+        let symbol: String
+        let price: Double
+        let prevClose: Double
+
+        var change: Double { price - prevClose }
+        var changePct: Double { prevClose > 0 ? (change / prevClose * 100) : 0 }
+    }
+
+    /// Parse a Yahoo v8 chart response for a single market index. Reads
+    /// previous-day close from the closes array (second-to-last bar) — same
+    /// fix as parseStockSnapshot, since the chartPreviousClose intraday bug
+    /// affects index queries too.
+    static func parseMarketIndex(json: [String: Any], displayName: String, symbol: String) -> MarketIndexQuote? {
+        guard let chart = json["chart"] as? [String: Any],
+              let results = chart["result"] as? [[String: Any]],
+              let result = results.first,
+              let meta = result["meta"] as? [String: Any]
+        else {
+            return nil
+        }
+        let price = meta["regularMarketPrice"] as? Double ?? 0
+        guard price > 0 else { return nil }
+
+        // Read prev close from the closes array, same logic as the snapshot
+        // parser. Falls back to meta.previousClose then chartPreviousClose.
+        var prevClose: Double = 0
+        if let indicators = result["indicators"] as? [String: Any],
+           let quotes = (indicators["quote"] as? [[String: Any]])?.first,
+           let closes = quotes["close"] as? [Double?] {
+            let valid = closes.compactMap { $0 }
+            if valid.count >= 2 {
+                prevClose = valid[valid.count - 2]
+            }
+        }
+        if prevClose <= 0 {
+            prevClose = meta["previousClose"] as? Double
+                     ?? meta["chartPreviousClose"] as? Double
+                     ?? 0
+        }
+        // Same sanity check: a price-equals-prevClose match is suspect.
+        if abs(prevClose - price) < 0.0001 {
+            prevClose = 0
+        }
+
+        return MarketIndexQuote(displayName: displayName, symbol: symbol, price: price, prevClose: prevClose)
+    }
+
+    /// Format a number with comma thousands separators and 2 decimal places.
+    /// `String(format: "%,.2f", ...)` is NOT a valid Swift format — the
+    /// `,` thousands flag is a GNU printf extension that Swift's
+    /// `String(format:)` does not implement, and the previous code silently
+    /// produced literal `,.2f` strings. This helper uses NumberFormatter
+    /// for actual locale-correct grouping.
+    static func formatGrouped(_ value: Double) -> String {
+        let nf = NumberFormatter()
+        nf.numberStyle = .decimal
+        nf.groupingSeparator = ","
+        nf.decimalSeparator = "."
+        nf.minimumFractionDigits = 2
+        nf.maximumFractionDigits = 2
+        nf.usesGroupingSeparator = true
+        return nf.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
+    }
+
+    /// Format the market summary table from a list of parsed index quotes.
+    static func formatMarketSummary(_ quotes: [(name: String, quote: MarketIndexQuote?)]) -> String {
+        var lines: [String] = []
+        for (name, quote) in quotes {
+            guard let q = quote else {
+                lines.append("  \(name): unavailable")
+                continue
+            }
+            if q.prevClose > 0 {
+                let sign = q.change >= 0 ? "+" : ""
+                lines.append("  \(name): \(formatGrouped(q.price)) (\(sign)\(String(format: "%.2f", q.change)), \(sign)\(String(format: "%.2f", q.changePct))%)")
+            } else {
+                // Avoid the +0.00% fabrication path: if we can't compute a
+                // change, just print the price and explicitly say so.
+                lines.append("  \(name): \(formatGrouped(q.price)) (change unavailable for this session)")
+            }
+        }
+        return lines.joined(separator: "\n")
     }
 
     private static func getMarketSummary() async -> String {
@@ -325,11 +454,13 @@ enum FinanceTools {
             ("Dow Jones", "^DJI"),
         ]
 
-        var lines: [String] = []
+        var quotes: [(name: String, quote: MarketIndexQuote?)] = []
         for (name, symbol) in indices {
             let encoded = symbol.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? symbol
-            guard let url = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(encoded)?interval=1d&range=1d") else {
-                lines.append("  \(name): unavailable")
+            // range=5d so the closes array gives us yesterday's bar — same
+            // reasoning as parseStockSnapshot.
+            guard let url = URL(string: "https://query1.finance.yahoo.com/v8/finance/chart/\(encoded)?interval=1d&range=5d") else {
+                quotes.append((name, nil))
                 continue
             }
 
@@ -337,30 +468,24 @@ enum FinanceTools {
                 var request = URLRequest(url: url)
                 request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
                 request.timeoutInterval = 10
-
-                let (data, _) = try await URLSession.shared.data(for: request)
-                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-
-                if let chart = json?["chart"] as? [String: Any],
-                   let results = chart["result"] as? [[String: Any]],
-                   let meta = results.first?["meta"] as? [String: Any] {
-                    let price = meta["regularMarketPrice"] as? Double ?? 0
-                    let prev = meta["chartPreviousClose"] as? Double ?? 0
-                    let change = price - prev
-                    let pct = prev > 0 ? (change / prev * 100) : 0
-                    let sign = change >= 0 ? "+" : ""
-                    lines.append("  \(name): \(String(format: "%,.2f", price)) (\(sign)\(String(format: "%.2f", change)), \(sign)\(String(format: "%.2f", pct))%)")
-                } else {
-                    lines.append("  \(name): unavailable")
+                let (data, response) = try await URLSession.shared.data(for: request)
+                if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                    quotes.append((name, nil))
+                    continue
                 }
+                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    quotes.append((name, nil))
+                    continue
+                }
+                quotes.append((name, parseMarketIndex(json: json, displayName: name, symbol: symbol)))
             } catch {
-                lines.append("  \(name): unavailable")
+                quotes.append((name, nil))
             }
         }
 
         return GroundedResponse.format(
             source: "Yahoo Finance",
-            body: lines.joined(separator: "\n")
+            body: formatMarketSummary(quotes)
         )
     }
 }
