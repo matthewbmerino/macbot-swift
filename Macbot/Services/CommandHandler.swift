@@ -192,6 +192,147 @@ enum CommandHandler {
         return response
     }
 
+    // MARK: - Streaming entry point
+    //
+    // The non-streaming `handle` returns a final String, which means the
+    // command-driven path used to wait for the entire response to generate
+    // before the user saw anything. The streaming variant below preserves
+    // the same behavior for synthetic-string commands (/clear, /status,
+    // etc.) but uses agent.runStream for the agent-delegating commands so
+    // the first token shows up in <1s instead of after the whole response
+    // finishes.
+
+    /// Streaming version of `handle`. Returns an AsyncThrowingStream of
+    /// `StreamEvent` events. For synthetic-string commands the entire
+    /// result is yielded as a single .text event then the stream finishes.
+    /// For agent-delegating commands the agent's runStream events are
+    /// forwarded directly so the user sees text/status/image events as
+    /// they're produced.
+    static func handleStream(
+        command: String,
+        conv: Orchestrator.ConversationState,
+        orchestrator: Orchestrator
+    ) -> AsyncThrowingStream<StreamEvent, Error> {
+        let parts = command.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+        let cmd = String(parts[0]).lowercased()
+        let rest = parts.count > 1 ? String(parts[1]) : ""
+
+        // The set of commands that delegate to an agent and benefit from
+        // streaming. For everything else (synthetic strings, /status,
+        // /clear, /memories, etc.) we fall through to the non-streaming
+        // path and yield the result in one shot.
+        switch cmd {
+        case "/code", "/coder":
+            conv.currentAgent = .coder
+            guard !rest.isEmpty, let agent = conv.agents[.coder] else {
+                return oneShot("Switched to coder.")
+            }
+            return runOnAgentStream(agent, conv: conv, orchestrator: orchestrator, input: rest)
+
+        case "/think", "/reason":
+            conv.currentAgent = .reasoner
+            guard !rest.isEmpty, let agent = conv.agents[.reasoner] else {
+                return oneShot("Switched to reasoner.")
+            }
+            return runOnAgentStream(agent, conv: conv, orchestrator: orchestrator, input: rest)
+
+        case "/see", "/vision":
+            conv.currentAgent = .vision
+            guard !rest.isEmpty, let agent = conv.agents[.vision] else {
+                return oneShot("Switched to vision.")
+            }
+            return runOnAgentStream(agent, conv: conv, orchestrator: orchestrator, input: rest)
+
+        case "/chat":
+            conv.currentAgent = .general
+            guard !rest.isEmpty, let agent = conv.agents[.general] else {
+                return oneShot("Switched to general.")
+            }
+            return runOnAgentStream(agent, conv: conv, orchestrator: orchestrator, input: rest)
+
+        case "/knowledge", "/rag":
+            conv.currentAgent = .rag
+            guard !rest.isEmpty, let agent = conv.agents[.rag] else {
+                return oneShot("Switched to knowledge agent.")
+            }
+            return runOnAgentStream(agent, conv: conv, orchestrator: orchestrator, input: rest)
+
+        case "/plan":
+            guard !rest.isEmpty else { return oneShot("Usage: /plan <task description>") }
+            let agent = conv.agents[conv.currentAgent] ?? conv.agents[.general]!
+            return runOnAgentStream(agent, conv: conv, orchestrator: orchestrator, input: rest, plan: true)
+
+        case "/upgrade", "/big":
+            guard let reasoner = conv.agents[.reasoner] else {
+                return oneShot("Reasoner agent unavailable.")
+            }
+            var lastUser: String?
+            for msg in conv.transcript.reversed() {
+                if let role = msg["role"] as? String, role == "user",
+                   let content = msg["content"] as? String, !content.isEmpty {
+                    lastUser = content
+                    break
+                }
+            }
+            guard let prompt = lastUser else { return oneShot("No prior user message to upgrade.") }
+            conv.currentAgent = .reasoner
+            return runOnAgentStream(reasoner, conv: conv, orchestrator: orchestrator, input: prompt)
+
+        default:
+            // Synthetic-string commands: delegate to non-streaming handle
+            // and yield the result in a single chunk. Same UX as before
+            // for these because they generate their output instantly.
+            return AsyncThrowingStream { continuation in
+                Task {
+                    do {
+                        let result = try await handle(command: command, conv: conv, orchestrator: orchestrator)
+                        continuation.yield(.text(result))
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Streaming agent runner. Hydrates the transcript, runs the agent's
+    /// streaming loop, captures the new turn back into the transcript on
+    /// completion. Forwards every StreamEvent the agent emits.
+    private static func runOnAgentStream(
+        _ agent: BaseAgent,
+        conv: Orchestrator.ConversationState,
+        orchestrator: Orchestrator,
+        input: String,
+        plan: Bool = false
+    ) -> AsyncThrowingStream<StreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                let startCount = orchestrator.prepareAgent(agent, conv: conv)
+                do {
+                    for try await event in agent.runStream(input, plan: plan) {
+                        continuation.yield(event)
+                    }
+                    orchestrator.captureTurn(from: agent, into: conv, since: startCount)
+                    continuation.finish()
+                } catch {
+                    orchestrator.captureTurn(from: agent, into: conv, since: startCount)
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Build a one-shot stream that yields a single .text event and
+    /// finishes. Used for synthetic-string commands and for the "no input
+    /// provided" message paths.
+    private static func oneShot(_ text: String) -> AsyncThrowingStream<StreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(.text(text))
+            continuation.finish()
+        }
+    }
+
     // MARK: - Subcommands
 
     private static func status(conv: Orchestrator.ConversationState, orchestrator: Orchestrator) async throws -> String {

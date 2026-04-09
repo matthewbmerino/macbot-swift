@@ -434,9 +434,21 @@ final class Orchestrator {
                     conv.lastActive = Date()
 
                     if message.hasPrefix("/") {
-                        let result = try await handleCommand(conv: conv, message: message)
-                        continuation.yield(.text(result))
-                        continuation.finish()
+                        // Stream the command's output. Agent-delegating
+                        // commands (/code, /think, /chat, ...) get the
+                        // first token in <1s instead of waiting for the
+                        // full response. Synthetic-string commands
+                        // (/clear, /status, ...) yield in one shot.
+                        do {
+                            for try await event in CommandHandler.handleStream(
+                                command: message, conv: conv, orchestrator: self
+                            ) {
+                                continuation.yield(event)
+                            }
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(throwing: error)
+                        }
                         return
                     }
 
