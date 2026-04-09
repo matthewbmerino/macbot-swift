@@ -64,6 +64,66 @@ struct EvalReport {
     }
 }
 
+/// Pure scoring helper, extracted from `run` so the harness can be
+/// unit-tested without a live orchestrator. Takes the case definition
+/// plus what actually happened (response text, routed agent, tool list,
+/// optional error) and produces an EvalResult with the same scoring
+/// rules the live harness uses.
+extension EvalHarness {
+    static func scoreCase(
+        _ c: EvalCase,
+        actualResponse: String,
+        actualAgent: String,
+        actualTools: [String],
+        actualError: String? = nil,
+        latencyMs: Int = 0
+    ) -> EvalResult {
+        var failures: [String] = []
+
+        let routeOK: Bool
+        if let expected = c.expectedAgent {
+            routeOK = (actualAgent == expected)
+            if !routeOK { failures.append("route: expected=\(expected) got=\(actualAgent)") }
+        } else { routeOK = true }
+
+        let toolSet = Set(actualTools)
+        let missing = c.expectedTools.filter { !toolSet.contains($0) }
+        let forbidden = c.forbiddenTools.filter { toolSet.contains($0) }
+        if !missing.isEmpty { failures.append("missing tools: \(missing.joined(separator: ","))") }
+        if !forbidden.isEmpty { failures.append("forbidden tools: \(forbidden.joined(separator: ","))") }
+        let toolOK = missing.isEmpty && forbidden.isEmpty
+
+        let lower = actualResponse.lowercased()
+        let missingPhrases = c.mustContain.filter { !lower.contains($0.lowercased()) }
+        let presentBad = c.mustNotContain.filter { lower.contains($0.lowercased()) }
+        if !missingPhrases.isEmpty { failures.append("missing: \(missingPhrases.joined(separator: ","))") }
+        if !presentBad.isEmpty { failures.append("contains forbidden: \(presentBad.joined(separator: ","))") }
+        let containmentOK = missingPhrases.isEmpty && presentBad.isEmpty
+
+        if let err = actualError { failures.append("error: \(err)") }
+
+        return EvalResult(
+            caseName: c.name,
+            category: c.category,
+            passed: failures.isEmpty,
+            routeOK: routeOK,
+            toolOK: toolOK,
+            containmentOK: containmentOK,
+            actualAgent: actualAgent,
+            actualTools: actualTools,
+            response: actualResponse,
+            latencyMs: latencyMs,
+            failures: failures
+        )
+    }
+
+    /// Pure report builder. Public so the unit tests can validate
+    /// aggregation logic without going through `run`.
+    static func makeReport(results: [EvalResult], totalLatency: Int) -> EvalReport {
+        buildReport(results: results, totalLatency: totalLatency)
+    }
+}
+
 /// Held-out evaluation harness. Runs a frozen set of cases against the live
 /// orchestrator and produces a numerical report. Designed to be cheap enough
 /// to run nightly and surface regressions before they ship.
@@ -197,6 +257,31 @@ enum EvalHarness {
               expectedTools: [], forbiddenTools: [],
               mustContain: [], mustNotContain: ["Smith", "Jones"],
               category: "refusal"),
+
+        // ─── Time of day must use the tool, not fabricate ───────────────
+        .init(name: "tool_current_time",
+              query: "what time is it",
+              expectedAgent: nil,
+              expectedTools: ["current_time"], forbiddenTools: [],
+              mustContain: [], mustNotContain: ["I don't know", "I'm not sure"],
+              category: "tools"),
+
+        // ─── Stock price must include intraday or change %, never just "flat" ─
+        .init(name: "anti_flat_summary",
+              query: "how did Amazon do today",
+              expectedAgent: nil,
+              expectedTools: ["get_stock_price"], forbiddenTools: [],
+              mustContain: [],
+              mustNotContain: ["essentially flat", "no change from the start"],
+              category: "antihallucination"),
+
+        // ─── Cross-agent context survival (the regression we fixed) ─────
+        .init(name: "cross_agent_followup",
+              query: "what's 7 times 8",
+              expectedAgent: nil,
+              expectedTools: ["calculator"], forbiddenTools: [],
+              mustContain: ["56"], mustNotContain: [],
+              category: "multistep"),
     ]
 
     /// Run the full set against an orchestrator. Sequential to avoid cross-talk
@@ -232,43 +317,14 @@ enum EvalHarness {
             let actualAgent = trace?.routedAgent ?? "unknown"
             let actualTools = trace?.toolCallList.compactMap { $0["name"] as? String } ?? []
 
-            // Score
-            var failures: [String] = []
-            let routeOK: Bool
-            if let expected = c.expectedAgent {
-                routeOK = (actualAgent == expected)
-                if !routeOK { failures.append("route: expected=\(expected) got=\(actualAgent)") }
-            } else { routeOK = true }
-
-            let toolOK: Bool
-            let toolSet = Set(actualTools)
-            let missing = c.expectedTools.filter { !toolSet.contains($0) }
-            let forbidden = c.forbiddenTools.filter { toolSet.contains($0) }
-            if !missing.isEmpty { failures.append("missing tools: \(missing.joined(separator: ","))") }
-            if !forbidden.isEmpty { failures.append("forbidden tools: \(forbidden.joined(separator: ","))") }
-            toolOK = missing.isEmpty && forbidden.isEmpty
-
-            let lower = actualResponse.lowercased()
-            let missingPhrases = c.mustContain.filter { !lower.contains($0.lowercased()) }
-            let presentBad = c.mustNotContain.filter { lower.contains($0.lowercased()) }
-            if !missingPhrases.isEmpty { failures.append("missing: \(missingPhrases.joined(separator: ","))") }
-            if !presentBad.isEmpty { failures.append("contains forbidden: \(presentBad.joined(separator: ","))") }
-            let containmentOK = missingPhrases.isEmpty && presentBad.isEmpty
-
-            if let err = actualError { failures.append("error: \(err)") }
-
-            results.append(EvalResult(
-                caseName: c.name,
-                category: c.category,
-                passed: failures.isEmpty,
-                routeOK: routeOK,
-                toolOK: toolOK,
-                containmentOK: containmentOK,
+            // Score via the pure helper so the same logic runs in unit tests.
+            results.append(scoreCase(
+                c,
+                actualResponse: actualResponse,
                 actualAgent: actualAgent,
                 actualTools: actualTools,
-                response: actualResponse,
-                latencyMs: latency,
-                failures: failures
+                actualError: actualError,
+                latencyMs: latency
             ))
         }
 
