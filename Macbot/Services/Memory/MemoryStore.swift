@@ -308,13 +308,31 @@ final class MemoryStore {
 
     // MARK: - Prompt Formatting
 
+    /// Date formatter for the inline `[YYYY-MM-DD]` timestamp prefix.
+    /// Cached to avoid the per-call construction cost.
+    private static let promptDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = .current
+        return f
+    }()
+
     func formatForPrompt(limit: Int = 15) -> String {
         let memories = recall(limit: limit)
-        guard !memories.isEmpty else { return "" }
+        return Self.formatMemoriesForPrompt(memories)
+    }
 
-        var lines = ["[Persistent Memory]"]
+    /// Pure formatter for a list of memories. Each entry gets an inline
+    /// `[YYYY-MM-DD]` timestamp so the model can discount stale facts on
+    /// its own — "you told me this on 2026-01-12" carries more useful
+    /// signal than just "you told me this." Extracted into a static so
+    /// the formatting is testable without the database.
+    static func formatMemoriesForPrompt(_ memories: [Memory]) -> String {
+        guard !memories.isEmpty else { return "" }
+        var lines = ["[Persistent Memory — facts the user has previously asked you to remember]"]
         for m in memories {
-            lines.append("- [\(m.category)] \(m.content)")
+            let date = promptDateFormatter.string(from: m.updatedAt)
+            lines.append("- [\(date)] [\(m.category)] \(m.content)")
         }
         return lines.joined(separator: "\n")
     }

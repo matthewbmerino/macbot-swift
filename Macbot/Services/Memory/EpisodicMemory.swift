@@ -140,6 +140,32 @@ final class EpisodicMemory {
 
     // MARK: - Query
 
+    /// Delete episodes older than `days` days. The trace store grows
+    /// unbounded over time and ancient episodes hurt the embedding router
+    /// (more noise to fight) and bloat the database. Episodes from over
+    /// three months ago are rarely retrieved by useful queries; if you
+    /// want them back, that's what backups are for.
+    ///
+    /// Returns the number of episodes deleted. Safe to call from a
+    /// background maintenance task.
+    @discardableResult
+    func pruneOlderThan(days: Int) -> Int {
+        guard days > 0 else { return 0 }
+        let cutoff = Date().addingTimeInterval(-Double(days) * 86_400)
+        do {
+            let deleted = try dbPool.write { db in
+                try Episode.filter(Column("startedAt") < cutoff).deleteAll(db)
+            }
+            if deleted > 0 {
+                Log.app.info("[episodic] pruned \(deleted) episodes older than \(days) days")
+            }
+            return deleted
+        } catch {
+            Log.app.warning("[episodic] prune failed: \(error)")
+            return 0
+        }
+    }
+
     /// Most recent episodes, newest first.
     func recent(limit: Int = 10) -> [Episode] {
         do {
