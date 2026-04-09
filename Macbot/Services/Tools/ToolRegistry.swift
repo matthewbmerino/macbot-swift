@@ -4,13 +4,69 @@ actor ToolRegistry {
     private var specs: [ToolSpec] = []
     private var handlers: [String: ToolHandler] = [:]
 
-    // 30s blanket timeout. The previous 60s was too generous — most tools
-    // should return in 1–10s, and a hung tool taking a full minute to
-    // surface its error is a quality-of-experience problem. 30s leaves
-    // headroom for legitimately slow operations (large web fetches, Python
-    // script with cold matplotlib import) without making the user wait.
-    // A future per-category split (fast/medium/slow) is the next step.
+    // Per-category tool timeouts. The previous 30s blanket made every
+    // tool wait the full slow-tool budget — clipboard reads timing out
+    // after 30s on a hang is absurd. Now split into three tiers:
+    //
+    // - **Fast (5s)**: pure-Swift / pure-local operations that should
+    //   return in <1s on a healthy machine. Anything longer is a hang.
+    // - **Medium (15s)**: network-bound operations with predictable
+    //   small payloads (weather, stock prices, calendar lookups).
+    // - **Slow (30s)**: subprocess-spawning or large-payload operations
+    //   (Python execution, web fetch, chart generation, ingestion).
+    //
+    // Falls back to medium for unrecognized tools — the safer default.
+    // Kept as `toolTimeout` (the slow tier) for backwards compat with
+    // any external callers.
     static let toolTimeout: TimeInterval = 30
+    static let fastTimeout: TimeInterval = 5
+    static let mediumTimeout: TimeInterval = 15
+    static let slowTimeout: TimeInterval = 30
+
+    /// Tools that should complete in under a second. A hang here means
+    /// something is genuinely broken; no point waiting 30s for it.
+    static let fastTools: Set<String> = [
+        "current_time", "calculator", "unit_convert", "date_calc", "define_word",
+        "get_clipboard", "set_clipboard", "json_format", "encode_decode", "regex_extract",
+        "memory_save", "memory_recall", "memory_search", "memory_forget",
+        "recall_episodes", "ambient_context", "system_dashboard",
+        "git_status", "git_log", "git_diff",
+        "read_file", "list_directory", "search_files",
+        "get_clipboard", "generate_qr",
+    ]
+
+    /// Tools that need a network round trip with predictable response size.
+    /// 15s gives plenty of headroom for the slowest reasonable response.
+    static let mediumTools: Set<String> = [
+        "weather_lookup", "get_stock_price", "get_stock_history", "get_market_summary",
+        "calendar_today", "calendar_create", "calendar_week", "reminder_create",
+        "email_draft", "email_read",
+        "now_playing", "media_control", "set_volume", "search_play",
+        "ping", "dns_lookup", "port_check", "http_check",
+        "open_app", "open_url", "send_notification", "list_running_apps",
+        "get_system_info", "get_process_details", "get_top_processes",
+        "get_listening_ports", "quit_app", "focus_app", "toggle_dark_mode",
+        "take_screenshot", "screen_ocr", "screen_region_ocr",
+        "web_search", "fetch_page",
+    ]
+
+    /// Heavy operations: subprocess spawn, large payload, model inference.
+    static let slowTools: Set<String> = [
+        "run_python", "run_command", "run_applescript",
+        "ingest_file", "ingest_directory", "knowledge_search",
+        "summarize_url", "browse_url", "browse_and_act", "screenshot_url",
+        "stock_chart", "comparison_chart", "generate_chart",
+        "generate_image",
+        "write_file",  // can be large
+    ]
+
+    /// Resolve the timeout for a given tool name. Unrecognized tools get
+    /// the medium tier as a safe default.
+    static func timeout(for toolName: String) -> TimeInterval {
+        if fastTools.contains(toolName) { return fastTimeout }
+        if slowTools.contains(toolName) { return slowTimeout }
+        return mediumTimeout
+    }
 
     func register(_ spec: ToolSpec, handler: @escaping ToolHandler) {
         specs.append(spec)
@@ -115,6 +171,7 @@ actor ToolRegistry {
             event: .toolStart, toolName: name, toolArgs: arguments
         ))
 
+        let timeoutSeconds = Self.timeout(for: name)
         do {
             let result = try await withThrowingTaskGroup(of: String.self) { group in
                 group.addTask {
@@ -122,8 +179,8 @@ actor ToolRegistry {
                 }
 
                 group.addTask {
-                    try await Task.sleep(for: .seconds(Self.toolTimeout))
-                    throw ToolError.timeout(name, Self.toolTimeout)
+                    try await Task.sleep(for: .seconds(timeoutSeconds))
+                    throw ToolError.timeout(name, timeoutSeconds)
                 }
 
                 let result = try await group.next()!
@@ -140,7 +197,7 @@ actor ToolRegistry {
             ActivityLog.shared.log(.tool, "\(name) → \(preview)")
             return (name, result)
         } catch is ToolError {
-            let err = "Error: tool '\(name)' timed out after \(Int(Self.toolTimeout))s"
+            let err = "Error: tool '\(name)' timed out after \(Int(timeoutSeconds))s"
             ActivityLog.shared.log(.tool, err)
             await HookSystem.shared.fireAsync(HookContext.make(
                 event: .toolError, toolName: name, error: err
