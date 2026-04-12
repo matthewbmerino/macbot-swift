@@ -3,6 +3,7 @@ import MarkdownUI
 
 struct MessageBubble: View {
     let message: ChatMessage
+    var onEdit: (() -> Void)?
     @State private var isHovering = false
     @State private var expandedImage: Data?
 
@@ -14,10 +15,9 @@ struct MessageBubble: View {
                     .font(.caption)
                     .foregroundStyle(message.role == .user ? .primary : Color.accentColor)
 
-                Text(message.role == .user ? "You" : "Macbot")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(message.role == .user ? .primary : Color.accentColor)
+                Text(message.role == .user ? "You" : "macbot")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(message.role == .user ? .secondary : Color.accentColor)
 
                 if let agent = message.agentCategory {
                     AgentBadge(category: agent)
@@ -25,21 +25,36 @@ struct MessageBubble: View {
 
                 Spacer()
 
-                // Copy button (visible on hover)
+                // Action buttons (visible on hover)
                 if isHovering && !message.content.isEmpty {
-                    Button(action: { copyToClipboard() }) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                    HStack(spacing: 8) {
+                        // Edit button (user messages only)
+                        if message.role == .user, let onEdit {
+                            Button(action: onEdit) {
+                                Image(systemName: "pencil")
+                                    .font(.caption2)
+                                    .symbolRenderingMode(.hierarchical)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Edit & resend")
+                        }
+
+                        Button(action: { copyToClipboard() }) {
+                            Image(systemName: "doc.on.doc")
+                                .font(.caption2)
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy message")
                     }
-                    .buttonStyle(.plain)
-                    .help("Copy message")
                     .transition(.opacity)
                 }
 
                 Text(message.timestamp, style: .relative)
                     .font(.caption2)
-                    .foregroundStyle(.quaternary)
+                    .foregroundStyle(.tertiary)
             }
 
             // Content
@@ -52,11 +67,11 @@ struct MessageBubble: View {
                         .markdownBlockStyle(\.codeBlock) { configuration in
                             configuration.label
                                 .padding(12)
-                                .background(.quaternary.opacity(0.3))
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .background(.fill.quaternary)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(.quaternary, lineWidth: 1)
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
                                 )
                         }
                         .textSelection(.enabled)
@@ -81,9 +96,15 @@ struct MessageBubble: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
+        .background(
+            message.role == .user
+                ? AnyShapeStyle(.fill.tertiary)
+                : AnyShapeStyle(.clear)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onHover { isHovering = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovering)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isHovering)
         .sheet(item: $expandedImage) { data in
             ImageViewer(imageData: data)
         }
@@ -123,28 +144,28 @@ struct ImageThumbnail: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: 350, maxHeight: 250)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(.white.opacity(isHovering ? 0.15 : 0), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(isHovering ? 1 : 0), lineWidth: 1)
                 )
-                .shadow(color: .black.opacity(isHovering ? 0.3 : 0), radius: 8)
+                .shadow(color: .black.opacity(isHovering ? 0.15 : 0), radius: 8)
 
             // Expand hint on hover
             if isHovering {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
                     .font(.caption2)
-                    .padding(5)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
                     .padding(6)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .padding(8)
                     .transition(.opacity)
             }
         }
         .onHover { isHovering = $0 }
         .onTapGesture { onTap() }
         .cursor(.pointingHand)
-        .animation(.easeInOut(duration: 0.15), value: isHovering)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isHovering)
     }
 }
 
@@ -224,12 +245,12 @@ struct ImageViewer: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.caption.weight(.medium))
                 if isHovering.wrappedValue {
                     Text(label)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.caption.weight(.medium))
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .move(edge: .trailing)),
                             removal: .opacity
@@ -237,14 +258,14 @@ struct ImageViewer: View {
                 }
             }
             .foregroundStyle(isHovering.wrappedValue ? .white : .white.opacity(0.6))
-            .padding(.horizontal, isHovering.wrappedValue ? 10 : 7)
-            .padding(.vertical, 6)
-            .background(.white.opacity(isHovering.wrappedValue ? 0.12 : 0.06))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, isHovering.wrappedValue ? 12 : 8)
+            .padding(.vertical, 8)
+            .background(.fill.secondary)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { isHovering.wrappedValue = $0 }
-        .animation(.easeInOut(duration: 0.15), value: isHovering.wrappedValue)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isHovering.wrappedValue)
     }
 
     private func copyImage() {

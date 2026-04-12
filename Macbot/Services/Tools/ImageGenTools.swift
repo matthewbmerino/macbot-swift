@@ -76,12 +76,16 @@ enum ImageGenTools {
             )
             await container.setConserveMemory(true)
 
-            // Build parameters — SDXL-Turbo uses cfg=0, steps=2
-            var parameters = configuration.defaultParameters()
-            parameters.prompt = trimmed
-            parameters.negativePrompt = negativePrompt ?? ""
-            parameters.latentSize = latentSize
-            parameters.seed = seedValue
+            // Build parameters — SDXL-Turbo uses cfg=0, steps=2.
+            // Build as a `var` then shadow into a `let` so the concurrent
+            // `performTwoStage` closure captures an immutable copy (avoids
+            // the Swift 6 captured-var warning).
+            var builtParameters = configuration.defaultParameters()
+            builtParameters.prompt = trimmed
+            builtParameters.negativePrompt = negativePrompt ?? ""
+            builtParameters.latentSize = latentSize
+            builtParameters.seed = seedValue
+            let parameters = builtParameters
 
             Log.tools.info("Generating image: \"\(trimmed)\" [\(latentSize[0]*8)x\(latentSize[1]*8)] seed=\(seedValue) quantize=\(quantize)")
 

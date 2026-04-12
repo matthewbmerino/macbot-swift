@@ -53,8 +53,17 @@ let package = Package(
         ),
     ],
     // Tools 6.0 is required for the .v15 platform, but we stay on the Swift 5
-    // language mode so the existing NSLock-in-async code in EmbeddingRouter
-    // and friends doesn't trip Swift 6 strict concurrency errors. Migrating
-    // to actors / scoped locks is tracked in TODO.md.
+    // language mode pending a broader Swift 6 migration pass. Wave 2 D
+    // resolved the `HookContext.toolArgs` Sendable debt, and the earlier
+    // `MemoryStore.search` / `TraceStore` / `SkillStore` captured-var
+    // debts are already fixed. The remaining blockers to `.v6` are (a)
+    // NSLock-in-async in `EmbeddingRouter` and `MLXClient`, (b) the large
+    // set of `static var shared` singletons that need `@MainActor` or
+    // actor wrapping (DatabaseManager, TraceStore, SkillStore, ActivityLog,
+    // HotkeyManager, KeychainManager, SystemMonitor, QuickPanelController,
+    // EpisodicMemory), (c) `Orchestrator` needing Sendable conformance for
+    // its detached-task self captures, (d) captured-var warnings in
+    // `ChatViewModel` and `ImageGenTools`, and (e) a few POSIX globals
+    // (`vm_kernel_page_size`) referenced from tools. Tracked in TODO.md.
     swiftLanguageModes: [.v5]
 )

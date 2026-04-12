@@ -99,8 +99,11 @@ actor AmbientMonitor {
         s.isCharging = charging
 
         // Memory
-        s.memoryTotalGB = SystemMonitor.shared.memoryTotalGB
-        s.memoryUsedGB = SystemMonitor.shared.memoryUsedGB
+        let (memTotalGB, memUsedGB) = await MainActor.run {
+            (SystemMonitor.shared.memoryTotalGB, SystemMonitor.shared.memoryUsedGB)
+        }
+        s.memoryTotalGB = memTotalGB
+        s.memoryUsedGB = memUsedGB
 
         // Network — cheap heuristic via reachability of common DNS
         s.networkOnline = Self.isOnline()

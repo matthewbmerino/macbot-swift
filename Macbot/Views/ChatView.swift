@@ -2,19 +2,16 @@ import SwiftUI
 import MarkdownUI
 import UniformTypeIdentifiers
 
-// MARK: - Obsidian Design Tokens
+// MARK: - Design System (Apple-native)
 
-private enum ODS {
-    static let bg = Color(red: 0.067, green: 0.067, blue: 0.067)           // #111111
-    static let surface = Color(red: 0.102, green: 0.102, blue: 0.102)      // #1A1A1A
-    static let surfaceHover = Color(red: 0.133, green: 0.133, blue: 0.133) // #222222
-    static let border = Color.white.opacity(0.1)
-    static let borderSubtle = Color.white.opacity(0.05)
-    static let textPrimary = Color.white.opacity(0.9)
-    static let textSecondary = Color.white.opacity(0.5)
-    static let textTertiary = Color.white.opacity(0.3)
-    static let cornerRadius: CGFloat = 24
-    static let innerRadius: CGFloat = 16
+private enum DS {
+    static let bg = Color(nsColor: .windowBackgroundColor)
+    static let surface = Color(nsColor: .controlBackgroundColor)
+    static let separator = Color(nsColor: .separatorColor)
+    static let textPrimary = Color.primary
+    static let textSecondary = Color.secondary
+    static let textTertiary = Color(nsColor: .tertiaryLabelColor)
+    static let cornerRadius: CGFloat = 16
 }
 
 struct ChatView: View {
@@ -28,14 +25,11 @@ struct ChatView: View {
             sidebar
                 .frame(width: 220)
 
-            // Subtle vertical divider
-            Rectangle()
-                .fill(ODS.borderSubtle)
-                .frame(width: 0.5)
+            Divider()
 
             chatContent
         }
-        .background(ODS.bg)
+        .background(DS.bg)
         .frame(minWidth: 700, minHeight: 520)
         .onAppear { inputFocused = true }
     }
@@ -47,56 +41,55 @@ struct ChatView: View {
             // Header
             HStack(spacing: 8) {
                 Image(systemName: "cube.transparent")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.8))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
 
-                Text("Macbot")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(ODS.textPrimary)
+                Text("macbot")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(DS.textPrimary)
 
                 Spacer()
 
                 Button(action: { viewModel.newChat() }) {
                     Image(systemName: "square.and.pencil")
-                        .font(.system(size: 12))
-                        .foregroundStyle(ODS.textSecondary)
+                        .font(.caption)
+                        .foregroundStyle(DS.textSecondary)
                         .padding(6)
-                        .background(.white.opacity(0.04))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .background(.fill.tertiary)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .help("New Chat")
             }
             .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 10)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
 
             // Search
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10))
-                    .foregroundStyle(ODS.textTertiary)
+                    .font(.caption2)
+                    .foregroundStyle(DS.textTertiary)
                 TextField("Search...", text: $viewModel.searchQuery)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11))
-                    .foregroundStyle(ODS.textPrimary)
+                    .font(.caption)
+                    .foregroundStyle(DS.textPrimary)
                     .onChange(of: viewModel.searchQuery) { _, _ in viewModel.search() }
                 if !viewModel.searchQuery.isEmpty {
                     Button(action: { viewModel.clearSearch() }) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(ODS.textTertiary)
+                            .font(.caption2)
+                            .foregroundStyle(DS.textTertiary)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(ODS.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(ODS.borderSubtle, lineWidth: 0.5))
             .padding(.horizontal, 12)
-            .padding(.bottom, 10)
+            .padding(.vertical, 8)
+            .background(.fill.quaternary)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
 
             // Chat list
             if viewModel.isSearching {
@@ -108,36 +101,31 @@ struct ChatView: View {
             Spacer(minLength: 0)
 
             // Status bar
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 // Live indicator
                 Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.system(size: 7))
+                    .font(.caption2)
                     .foregroundStyle(.green)
-                    .opacity(livePulse ? 1.0 : 0.35)
-                    .onAppear {
-                        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                            livePulse = true
-                        }
-                    }
+                    .symbolEffect(.pulse, isActive: true)
 
                 Text(viewModel.isStreaming ? "Thinking..." : "On-Device")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(viewModel.isStreaming ? .orange.opacity(0.7) : .green.opacity(0.5))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(viewModel.isStreaming ? .orange : .green)
 
                 Spacer()
 
                 Text(viewModel.activeAgent.displayName)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(ODS.textTertiary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(.white.opacity(0.04))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(DS.textTertiary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.fill.tertiary)
                     .clipShape(Capsule())
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
         }
-        .background(.ultraThinMaterial)
+        .background(.regularMaterial)
     }
 
     private var chatList: some View {
@@ -155,32 +143,32 @@ struct ChatView: View {
         let isSelected = viewModel.currentChatId == chat.id
 
         return Button(action: { viewModel.selectChat(chat.id) }) {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(chat.title)
-                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? ODS.textPrimary : ODS.textSecondary)
+                    .font(.caption.weight(isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? DS.textPrimary : DS.textSecondary)
                     .lineLimit(1)
 
                 HStack {
                     Text(chat.lastMessage)
-                        .font(.system(size: 9))
-                        .foregroundStyle(ODS.textTertiary)
+                        .font(.caption2)
+                        .foregroundStyle(DS.textTertiary)
                         .lineLimit(1)
                     Spacer()
                     Text(chat.updatedAt, style: .relative)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(ODS.textTertiary.opacity(0.6))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(DS.textTertiary)
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? .white.opacity(0.06) : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .background(isSelected ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.clear))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 8)
         .contextMenu {
             Button("Delete", role: .destructive) { viewModel.deleteChat(chat.id) }
         }
@@ -190,30 +178,30 @@ struct ChatView: View {
         ScrollView {
             if viewModel.searchResults.isEmpty {
                 Text("No results")
-                    .font(.system(size: 11))
-                    .foregroundStyle(ODS.textTertiary)
+                    .font(.caption)
+                    .foregroundStyle(DS.textTertiary)
                     .padding()
             } else {
                 LazyVStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(viewModel.searchResults.enumerated()), id: \.offset) { _, result in
                         Button(action: { viewModel.selectChat(result.message.chatId) }) {
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 4) {
                                 Text(result.chatTitle)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(ODS.textPrimary)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(DS.textPrimary)
                                     .lineLimit(1)
                                 Text(result.message.content)
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(ODS.textTertiary)
+                                    .font(.caption2)
+                                    .foregroundStyle(DS.textTertiary)
                                     .lineLimit(2)
                             }
                             .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
+                            .padding(.vertical, 8)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .padding(.horizontal, 6)
+                        .padding(.horizontal, 8)
                     }
                 }
                 .padding(.vertical, 4)
@@ -235,8 +223,11 @@ struct ChatView: View {
                     } else {
                         LazyVStack(alignment: .leading, spacing: 4) {
                             ForEach(viewModel.messages) { msg in
-                                MessageBubble(message: msg)
-                                    .id(msg.id)
+                                MessageBubble(message: msg) {
+                                    viewModel.startEditing(message: msg)
+                                    inputFocused = true
+                                }
+                                .id(msg.id)
                             }
 
                             if let status = viewModel.currentStatus {
@@ -257,7 +248,7 @@ struct ChatView: View {
                     }
                 }
                 .onChange(of: viewModel.messages.count) {
-                    withAnimation(.easeOut(duration: 0.2)) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                         if let lastId = viewModel.messages.last?.id {
                             proxy.scrollTo(lastId, anchor: .bottom)
                         }
@@ -278,23 +269,24 @@ struct ChatView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 16)
         }
-        .background(ODS.bg)
+        .background(DS.bg)
         .onDrop(of: [.image, .fileURL], isTargeted: $dragOver) { providers in
             handleDrop(providers: providers)
             return true
         }
         .overlay {
             if dragOver {
-                RoundedRectangle(cornerRadius: ODS.cornerRadius)
+                RoundedRectangle(cornerRadius: DS.cornerRadius, style: .continuous)
                     .stroke(Color.accentColor.opacity(0.5), lineWidth: 1.5)
                     .background(.ultraThinMaterial.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: ODS.cornerRadius))
+                    .clipShape(RoundedRectangle(cornerRadius: DS.cornerRadius, style: .continuous))
                     .overlay {
                         VStack(spacing: 8) {
                             Image(systemName: "photo.badge.plus")
                                 .font(.system(size: 28, weight: .light))
+                                .symbolRenderingMode(.hierarchical)
                             Text("Drop image to analyze")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.subheadline.weight(.medium))
                         }
                         .foregroundStyle(Color.accentColor.opacity(0.8))
                     }
@@ -311,20 +303,21 @@ struct ChatView: View {
 
             ZStack {
                 Circle()
-                    .fill(.white.opacity(0.03))
+                    .fill(.fill.tertiary)
                     .frame(width: 80, height: 80)
                 Image(systemName: "cube.transparent")
-                    .font(.system(size: 32, weight: .thin))
-                    .foregroundStyle(ODS.textTertiary)
+                    .font(.system(size: 40, weight: .ultraLight))
+                    .foregroundStyle(DS.textTertiary)
+                    .symbolRenderingMode(.hierarchical)
             }
 
             Text("What can I help with?")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(ODS.textSecondary)
+                .font(.title3.weight(.medium))
+                .foregroundStyle(DS.textSecondary)
 
             Text("All processing happens on this Mac.\nNothing leaves your network.")
-                .font(.system(size: 12))
-                .foregroundStyle(ODS.textTertiary)
+                .font(.subheadline)
+                .foregroundStyle(DS.textTertiary)
                 .multilineTextAlignment(.center)
 
             Spacer()
@@ -354,14 +347,14 @@ struct ChatView: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                                 .frame(width: 52, height: 52)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(ODS.border, lineWidth: 0.5))
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(DS.separator, lineWidth: 0.5))
 
                             Button(action: { viewModel.pendingImages.remove(at: idx) }) {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.white.opacity(0.8))
-                                    .background(Circle().fill(.black.opacity(0.5)))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .background(Circle().fill(.ultraThinMaterial))
                             }
                             .buttonStyle(.plain)
                             .offset(x: 4, y: -4)
@@ -370,57 +363,109 @@ struct ChatView: View {
                 }
             }
             .padding(.horizontal, 4)
-            .padding(.bottom, 6)
+            .padding(.bottom, 8)
         }
     }
 
     // MARK: - Floating Input Bar
 
     private var floatingInputBar: some View {
-        HStack(spacing: 10) {
-            Button(action: { pickImage() }) {
-                Image(systemName: "paperclip")
-                    .font(.system(size: 13))
-                    .foregroundStyle(ODS.textTertiary)
+        VStack(spacing: 8) {
+            // Editing indicator
+            if viewModel.editingMessageId != nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "pencil.circle.fill")
+                        .font(.caption)
+                        .tint(.orange)
+                        .foregroundStyle(.orange)
+                    Text("Editing message — press Enter to resend")
+                        .font(.caption2)
+                        .foregroundStyle(DS.textSecondary)
+                    Spacer()
+                    Button("Cancel") {
+                        viewModel.editingMessageId = nil
+                        viewModel.inputText = ""
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(DS.textTertiary)
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.fill.tertiary)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .buttonStyle(.plain)
-            .help("Attach image")
 
-            TextField("Message Macbot...", text: $viewModel.inputText, axis: .vertical)
+            HStack(spacing: 12) {
+                Button(action: { pickImage() }) {
+                    Image(systemName: "paperclip")
+                        .font(.subheadline)
+                        .foregroundStyle(DS.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Attach image")
+
+                TextField(
+                    viewModel.editingMessageId != nil ? "Edit your message..." : "Message macbot...",
+                    text: $viewModel.inputText,
+                    axis: .vertical
+                )
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundStyle(ODS.textPrimary)
+                .font(.subheadline)
+                .foregroundStyle(DS.textPrimary)
                 .lineLimit(1...6)
                 .focused($inputFocused)
                 .onSubmit { sendMessage() }
-                .disabled(viewModel.isStreaming)
 
-            Button(action: { sendMessage() }) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(canSend ? Color.accentColor : ODS.textTertiary.opacity(0.3))
+                if viewModel.isStreaming {
+                    // Stop button replaces send during streaming
+                    Button(action: { viewModel.cancelStream() }) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.title2)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop generating")
+                    .keyboardShortcut(.escape, modifiers: [])
+                } else {
+                    // Send / Resend button
+                    Button(action: { sendMessage() }) {
+                        Image(systemName: viewModel.editingMessageId != nil
+                              ? "arrow.counterclockwise.circle.fill"
+                              : "arrow.up.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(canSend ? Color.accentColor : DS.textTertiary.opacity(0.3))
+                    }
+                    .disabled(!canSend)
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(.return, modifiers: [])
+                }
             }
-            .disabled(!canSend)
-            .buttonStyle(.plain)
-            .keyboardShortcut(.return, modifiers: [])
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.regularMaterial)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(
+                viewModel.editingMessageId != nil ? .orange.opacity(0.3) : DS.separator,
+                lineWidth: 0.5
+            ))
+            .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(ODS.surface)
-        .clipShape(Capsule())
-        .overlay(Capsule().stroke(ODS.border, lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
     }
 
     private var canSend: Bool {
-        (!viewModel.inputText.trimmingCharacters(in: .whitespaces).isEmpty || !viewModel.pendingImages.isEmpty)
-        && !viewModel.isStreaming
+        !viewModel.inputText.trimmingCharacters(in: .whitespaces).isEmpty || !viewModel.pendingImages.isEmpty
     }
 
     // MARK: - Actions
 
     private func sendMessage() {
-        viewModel.send()
+        if viewModel.editingMessageId != nil {
+            viewModel.resendEdited()
+        } else {
+            viewModel.send()
+        }
         inputFocused = true
     }
 
@@ -459,13 +504,12 @@ struct AgentBadge: View {
 
     var body: some View {
         Text(category.displayName)
-            .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(.white.opacity(0.5))
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(.white.opacity(0.05))
+            .padding(.vertical, 4)
+            .background(.fill.tertiary)
             .clipShape(Capsule())
-            .overlay(Capsule().stroke(Color.white.opacity(0.06), lineWidth: 0.5))
     }
 }
 
@@ -479,11 +523,11 @@ private struct TypingDots: View {
         HStack(spacing: 6) {
             ForEach(0..<3, id: \.self) { i in
                 Circle()
-                    .fill(.white)
+                    .fill(Color.primary)
                     .frame(width: 6, height: 6)
                     .opacity(phase == i ? 0.9 : 0.25)
                     .scaleEffect(phase == i ? 1.15 : 1.0)
-                    .animation(.easeInOut(duration: 0.18), value: phase)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: phase)
             }
         }
         .onReceive(timer) { _ in

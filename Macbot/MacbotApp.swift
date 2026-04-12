@@ -8,12 +8,12 @@ struct MacbotApp: App {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        MenuBarExtra("Macbot", systemImage: "cube.transparent") {
+        MenuBarExtra("macbot", systemImage: "cube.transparent") {
             MenuBarContent(appState: appState)
         }
         .menuBarExtraStyle(.window)
 
-        Window("Macbot", id: "main") {
+        Window("macbot", id: "main") {
             Group {
                 if !appState.authService.isUnlocked {
                     LockScreen(authService: appState.authService)
@@ -25,16 +25,26 @@ struct MacbotApp: App {
                 }
             }
             .onAppear {
+                // Wire Director launcher to SwiftUI's openWindow action
+                DirectorLauncher.shared.openWindowAction = { [openWindow] id in
+                    openWindow(id: id)
+                }
                 // Ensure the window is visible and focused
                 DispatchQueue.main.async {
                     NSApplication.shared.activate(ignoringOtherApps: true)
-                    for window in NSApplication.shared.windows where window.title == "Macbot" {
+                    for window in NSApplication.shared.windows where window.title == "macbot" {
                         window.makeKeyAndOrderFront(nil)
                     }
                 }
             }
         }
         .applyDefaultLaunchBehavior()
+
+        Window("Director", id: "director") {
+            DirectorView(orchestrator: appState.orchestrator)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1200, height: 800)
 
         Settings {
             SettingsView()
@@ -61,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showMainWindow() {
         // Retry until the SwiftUI Window scene has created the NSWindow
         func attempt(_ remaining: Int) {
-            for window in NSApplication.shared.windows where window.title == "Macbot" {
+            for window in NSApplication.shared.windows where window.title == "macbot" {
                 window.makeKeyAndOrderFront(nil)
                 NSApplication.shared.activate(ignoringOtherApps: true)
                 return
@@ -105,9 +115,12 @@ final class AppState {
                     self.isReady = true
 
                     QuickPanelController.shared.orchestrator = self.orchestrator
+                    OverlayController.shared.orchestrator = self.orchestrator
+                    CompanionController.shared.orchestrator = self.orchestrator
                     HotkeyManager.shared.registerDefaults {
                         QuickPanelController.shared.toggle()
                     }
+                    OverlayController.shared.registerHotkey()
 
                     Log.app.info("Macbot ready")
                 } else {

@@ -45,16 +45,27 @@ struct ActivityEntry: Identifiable {
 
 /// Observable activity log that captures real-time system events.
 /// Views subscribe to this to show a live terminal feed.
+///
+/// The `entries` buffer is pinned to the main actor because SwiftUI views
+/// read it directly, and `@Observable` change-notification is a main-actor
+/// operation. The `log()` entry point is deliberately `nonisolated` so
+/// background call sites (orchestrator, tool registry, agents) can fire
+/// events without paying an `await` hop on every log line — the function
+/// hands the entry off to a detached `Task { @MainActor in ... }` which
+/// appends under main-actor isolation.
 @Observable
+@MainActor
 final class ActivityLog {
-    static let shared = ActivityLog()
+    nonisolated static let shared = ActivityLog()
 
     private(set) var entries: [ActivityEntry] = []
     private let maxEntries = 200
 
-    func log(_ category: ActivityEntry.Category, _ message: String) {
+    nonisolated init() {}
+
+    nonisolated func log(_ category: ActivityEntry.Category, _ message: String) {
         let entry = ActivityEntry(timestamp: Date(), category: category, message: message)
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             self.entries.append(entry)
             if self.entries.count > self.maxEntries {

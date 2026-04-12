@@ -1,21 +1,27 @@
 import Accelerate
 import Foundation
+import os
 
 /// Embedding-based router that classifies messages using cosine similarity
 /// against pre-computed category centroids. Faster and more deterministic
 /// than LLM-based routing — ~50ms vs ~500ms.
-final class EmbeddingRouter: @unchecked Sendable {
+final class EmbeddingRouter: Sendable {
     private let client: any InferenceProvider
     private let embeddingModel: String
 
-    /// Lock protecting mutable state (`centroids`, `centroidNorms`, `isCalibrated`).
-    private let lock = NSLock()
+    /// Mutable state protected by an unfair lock. All accesses are short-held
+    /// and never span `await`, so `OSAllocatedUnfairLock.withLock {}` is safe
+    /// and avoids the Swift 6 strict-concurrency pitfalls of `NSLock` in async
+    /// functions.
+    private struct State {
+        /// Pre-computed centroids for each agent category.
+        /// Each centroid is the average embedding of representative queries.
+        var centroids: [AgentCategory: [Float]] = [:]
+        var centroidNorms: [AgentCategory: Float] = [:]
+        var isCalibrated = false
+    }
 
-    /// Pre-computed centroids for each agent category.
-    /// Each centroid is the average embedding of representative queries.
-    private var centroids: [AgentCategory: [Float]] = [:]
-    private var centroidNorms: [AgentCategory: Float] = [:]
-    private var isCalibrated = false
+    private let state = OSAllocatedUnfairLock<State>(initialState: State())
 
     // Representative queries per category — used to build centroids
     private static let seedQueries: [AgentCategory: [String]] = [
@@ -99,10 +105,10 @@ final class EmbeddingRouter: @unchecked Sendable {
                 let centroid = Self.averageEmbedding(embeddings)
                 let norm = VectorIndex.l2Norm(centroid)
 
-                lock.lock()
-                centroids[category] = centroid
-                centroidNorms[category] = norm
-                lock.unlock()
+                state.withLock { s in
+                    s.centroids[category] = centroid
+                    s.centroidNorms[category] = norm
+                }
 
                 Log.agents.info("[embedding-router] calibrated \(category.rawValue) with \(embeddings.count) embeddings (dim=\(centroid.count))")
             } catch {
@@ -110,10 +116,10 @@ final class EmbeddingRouter: @unchecked Sendable {
             }
         }
 
-        lock.lock()
-        isCalibrated = !centroids.isEmpty
-        let count = centroids.count
-        lock.unlock()
+        let count = state.withLock { s -> Int in
+            s.isCalibrated = !s.centroids.isEmpty
+            return s.centroids.count
+        }
         Log.agents.info("[embedding-router] calibration complete: \(count) categories")
     }
 
@@ -122,9 +128,7 @@ final class EmbeddingRouter: @unchecked Sendable {
     func classify(message: String, hasImages: Bool = false) async -> AgentCategory {
         if hasImages { return .vision }
 
-        lock.lock()
-        let calibrated = isCalibrated
-        lock.unlock()
+        let calibrated = state.withLock { $0.isCalibrated }
 
         guard calibrated else {
             Log.agents.warning("[embedding-router] not calibrated, defaulting to general")
@@ -140,10 +144,9 @@ final class EmbeddingRouter: @unchecked Sendable {
             let queryNorm = VectorIndex.l2Norm(queryEmb)
             guard queryNorm > 0 else { return .general }
 
-            lock.lock()
-            let snapshotCentroids = centroids
-            let snapshotNorms = centroidNorms
-            lock.unlock()
+            let (snapshotCentroids, snapshotNorms) = state.withLock { s in
+                (s.centroids, s.centroidNorms)
+            }
 
             var bestCategory: AgentCategory = .general
             var bestSimilarity: Float = -1
@@ -173,9 +176,7 @@ final class EmbeddingRouter: @unchecked Sendable {
 
     /// Get similarity scores for all categories (for debugging/UI).
     func classifyWithScores(message: String) async -> [(AgentCategory, Float)] {
-        lock.lock()
-        let calibrated = isCalibrated
-        lock.unlock()
+        let calibrated = state.withLock { $0.isCalibrated }
 
         guard calibrated else { return [] }
 
@@ -186,10 +187,9 @@ final class EmbeddingRouter: @unchecked Sendable {
             let queryNorm = VectorIndex.l2Norm(queryEmb)
             guard queryNorm > 0 else { return [] }
 
-            lock.lock()
-            let snapshotCentroids = centroids
-            let snapshotNorms = centroidNorms
-            lock.unlock()
+            let (snapshotCentroids, snapshotNorms) = state.withLock { s in
+                (s.centroids, s.centroidNorms)
+            }
 
             var scores: [(AgentCategory, Float)] = []
             for (category, centroid) in snapshotCentroids {

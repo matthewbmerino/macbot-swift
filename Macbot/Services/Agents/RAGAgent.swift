@@ -3,7 +3,16 @@ import Foundation
 /// RAG (Retrieval-Augmented Generation) agent that answers questions using
 /// ingested documents. Retrieves relevant chunks via vector similarity,
 /// re-ranks them, and injects context into the prompt.
-final class RAGAgent: BaseAgent {
+///
+/// `@unchecked Sendable`: `RAGAgent` stores only immutable `let` references
+/// (`chunkStore`, `ingester`, `embeddingModel`) whose targets handle their
+/// own synchronization, and it inherits its mutable state from `BaseAgent`,
+/// which is used from a single logical agent pipeline at a time. Declaring
+/// it `@unchecked Sendable` here is what lets the `Task { ... }` closure
+/// inside `runStream(_:images:plan:)` pass the Swift 6 sending-closure
+/// check without capturing self under `@MainActor`. Any safety fix to
+/// `BaseAgent`'s own mutable state is tracked separately in Wave 2.
+final class RAGAgent: BaseAgent, @unchecked Sendable {
     let chunkStore: ChunkStore
     let ingester: DocumentIngester
     private let embeddingModel: String
@@ -77,7 +86,7 @@ final class RAGAgent: BaseAgent {
                 do {
                     continuation.yield(.status("Searching knowledge base..."))
 
-                    let context = try await retrieveContext(for: input)
+                    let context = try await self.retrieveContext(for: input)
 
                     var augmentedInput = input
                     if !context.isEmpty {

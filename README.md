@@ -1,13 +1,13 @@
-# Macbot
+# macbot
 
 [![Build](https://github.com/matthewbmerino/macbot-swift/actions/workflows/build.yml/badge.svg)](https://github.com/matthewbmerino/macbot-swift/actions/workflows/build.yml)
 
 Native macOS AI agent — privacy-first, all processing on-device.
 
-![Macbot chat — answering "what apps are running right now?" with grounded tool data](Assets/chat.png)
+![macbot chat — answering "what apps are running right now?" with grounded tool data](Assets/chat.png)
 
 <p align="center">
-  <img src="Assets/menubar.png" alt="Macbot menu bar widget — live CPU / memory / GPU dials with on-device badge" width="360">
+  <img src="Assets/menubar.png" alt="macbot menu bar widget — live CPU / memory / GPU dials with on-device badge" width="360">
 </p>
 
 Built with SwiftUI. Runs models locally via Ollama (llama.cpp Metal backend) for maximum performance. Multi-agent orchestration, semantic memory, RAG pipeline, and deep system introspection.
@@ -28,13 +28,13 @@ swift run Macbot
 ```
 
 First launch walks you through model selection and grants the macOS
-permissions Macbot needs (Accessibility, Screen Recording for OCR, Calendar
+permissions macbot needs (Accessibility, Screen Recording for OCR, Calendar
 and Contacts for those tools). Everything runs locally — nothing leaves the
 machine.
 
 ## Configuration
 
-Macbot ships with defaults tuned for an **M3 Pro 18GB**: a single shared 9B
+macbot ships with defaults tuned for an **M3 Pro 18GB**: a single shared 9B
 model for general/coder/reasoner/RAG (specialization via system prompts), a
 small multimodal vision model, and a tiny router + embedding model that stay
 warm. Resting footprint ~1.6 GB, active ~8 GB.

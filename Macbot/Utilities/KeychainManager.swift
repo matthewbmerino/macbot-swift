@@ -1,10 +1,17 @@
 import Foundation
-import KeychainAccess
+@preconcurrency import KeychainAccess
 import LocalAuthentication
 
 enum KeychainManager {
-    private static let keychain = Keychain(service: "com.macbot")
-    private static let secureKeychain = Keychain(service: "com.macbot.secure")
+    // `nonisolated(unsafe)`: both `Keychain` instances are immutable
+    // handles to the system Keychain; all read/write methods on
+    // `KeychainAccess.Keychain` funnel into Security.framework's
+    // thread-safe C API. The `let`s are set exactly once at program
+    // startup and are never reassigned, so the only Sendable hazard is
+    // the non-Sendable type itself — which is why we also pair this
+    // with `@preconcurrency import KeychainAccess`.
+    nonisolated(unsafe) private static let keychain = Keychain(service: "com.macbot")
+    nonisolated(unsafe) private static let secureKeychain = Keychain(service: "com.macbot.secure")
         .accessibility(.whenPasscodeSetThisDeviceOnly, authenticationPolicy: [.biometryCurrentSet])
 
     // MARK: - Standard (no biometric required)

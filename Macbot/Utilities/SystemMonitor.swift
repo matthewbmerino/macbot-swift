@@ -1,7 +1,19 @@
 import Foundation
 import AppKit
 
+/// Swift-typed snapshot of the kernel page size, captured once at module
+/// load via the POSIX `sysconf(_SC_PAGESIZE)` function call. Darwin exposes
+/// `vm_kernel_page_size` as a mutable C global, which trips Swift 6's
+/// concurrency-safety check at every read site; routing through a function
+/// call sidesteps the warning entirely and yields the same value (kernel
+/// page size cannot change over the lifetime of a running process, so the
+/// immutable snapshot is safe for all callers). `SystemMonitor`,
+/// `MacOSTools`, and `SkillTools` all read this constant instead of the
+/// POSIX global.
+let kernelPageSize: Int = Int(sysconf(_SC_PAGESIZE))
+
 @Observable
+@MainActor
 final class SystemMonitor {
     static let shared = SystemMonitor()
 
@@ -99,7 +111,7 @@ final class SystemMonitor {
 
         guard result == KERN_SUCCESS else { return (0, 0) }
 
-        let pageSize = Double(vm_kernel_page_size)
+        let pageSize = Double(kernelPageSize)
         let active = Double(stats.active_count) * pageSize
         let wired = Double(stats.wire_count) * pageSize
         let compressed = Double(stats.compressor_page_count) * pageSize

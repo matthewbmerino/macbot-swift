@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-final class DatabaseManager {
+final class DatabaseManager: Sendable {
     static let shared = DatabaseManager()
 
     let dbPool: DatabasePool

@@ -11,148 +11,6 @@ final class Orchestrator {
     let compositeToolStore: CompositeToolStore
     var modelConfig: ModelConfig
 
-    /// Inject learned skills + apply learned tool routing in a single pass
-    /// that embeds the message exactly once and runs both consumers
-    /// concurrently. Previously these were two sequential helpers, each
-    /// independently embedding the same query — two Ollama round-trips per
-    /// turn for no reason. This collapses that to one round-trip and runs
-    /// the two k-NN steps in parallel.
-    @discardableResult
-    func injectSkillsAndLearnedRouting(agent: BaseAgent, message: String) async -> LearnedPrediction? {
-        // 1. Embed the user message once.
-        let queryVec: [Float]
-        do {
-            let vecs = try await client.embed(model: modelConfig.embedding, text: [message])
-            queryVec = vecs.first ?? []
-        } catch {
-            queryVec = []
-        }
-
-        // Empty embedding → both downstream consumers degrade gracefully.
-        if queryVec.isEmpty {
-            agent.learnedToolHints = []
-            return nil
-        }
-
-        // 2. Run skill retrieval and learned routing concurrently. Skill
-        //    retrieval scans the SkillStore in-memory; learned routing
-        //    scans TraceStore's vector index. Neither touches the network
-        //    after the embed above, so they're cheap to parallelize.
-        async let skillsTask = SkillStore.shared.retrieve(forQueryEmbedding: queryVec, topK: 5)
-        async let predictionTask = LearnedRouter.predict(
-            forQueryEmbedding: queryVec,
-            topK: 8,
-            minSimilarity: 0.55
-        )
-        let (skills, prediction) = await (skillsTask, predictionTask)
-
-        // 3. Apply the results.
-        let block = SkillStore.formatForPrompt(skills)
-        if !block.isEmpty {
-            agent.history.append(["role": "system", "content": block])
-        }
-        agent.learnedToolHints = prediction?.tools ?? []
-        if let prediction, !prediction.tools.isEmpty {
-            ActivityLog.shared.log(
-                .routing,
-                "Learned hints: \(prediction.tools.joined(separator: ",")) (\(prediction.neighborCount) neighbors, sim=\(String(format: "%.2f", prediction.topSimilarity)))"
-            )
-        }
-        return prediction
-    }
-
-    // Legacy entry points kept for any external callers; they delegate to the
-    // combined helper above so there's no duplicated embedding cost.
-    func injectLearnedSkills(agent: BaseAgent, message: String) async {
-        _ = await injectSkillsAndLearnedRouting(agent: agent, message: message)
-    }
-
-    func applyLearnedRouting(agent: BaseAgent, message: String) async -> LearnedPrediction? {
-        await injectSkillsAndLearnedRouting(agent: agent, message: message)
-    }
-
-    /// Fire-and-forget skill distillation. Runs on a detached task with the
-    /// router model so it never blocks the chat path.
-    func scheduleSkillDistillation(trace: TraceBuilder) {
-        // Snapshot the trace data we need — the builder is mutable
-        let snapshotTrace = InteractionTrace(
-            id: nil,
-            sessionId: trace.sessionId,
-            userId: trace.userId,
-            turnIndex: trace.turnIndex,
-            userMessage: trace.userMessage,
-            userMessageEmbedding: nil,
-            routedAgent: trace.routedAgent,
-            routeReason: trace.routeReason,
-            modelUsed: trace.modelUsed,
-            toolCalls: (try? JSONSerialization.data(withJSONObject: trace.toolCalls))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "[]",
-            assistantResponse: trace.assistantResponse,
-            responseTokens: trace.responseTokens,
-            latencyMs: 0,
-            error: trace.error,
-            ambientSnapshot: "{}",
-            metadata: "{}",
-            createdAt: Date()
-        )
-        let client = self.client
-        let routerModel = self.modelConfig.router
-        let embModel = self.modelConfig.embedding
-        Task.detached {
-            await SkillStore.shared.distill(
-                from: snapshotTrace,
-                client: client,
-                model: routerModel,
-                embeddingModel: embModel
-            )
-        }
-    }
-
-    /// Stable session identifier for trace correlation. Reset on /clear via
-    /// ConversationState.sessionStartedAt.
-    func sessionId(for conv: ConversationState, userId: String) -> String {
-        let ts = Int(conv.sessionStartedAt.timeIntervalSince1970)
-        return "\(userId)-\(ts)"
-    }
-
-    /// Walk the agent's history added during this turn and pull out tool calls
-    /// + their results into the trace builder.
-    func extractToolCalls(from agent: BaseAgent, since startCount: Int, into trace: TraceBuilder) {
-        guard agent.history.count > startCount else { return }
-        let new = agent.history[startCount...]
-        var pendingByName: [String: [String: Any]] = [:]
-        var startTime = Date()
-        for msg in new {
-            guard let role = msg["role"] as? String else { continue }
-            if role == "assistant", let calls = msg["tool_calls"] as? [[String: Any]] {
-                for call in calls {
-                    guard let function = call["function"] as? [String: Any],
-                          let name = function["name"] as? String
-                    else { continue }
-                    let args = function["arguments"] as? [String: Any] ?? [:]
-                    pendingByName[name] = args
-                    startTime = Date()
-                }
-            } else if role == "tool" {
-                let name = msg["name"] as? String ?? ""
-                let result = msg["content"] as? String ?? ""
-                let args = pendingByName.removeValue(forKey: name) ?? [:]
-                let elapsed = Int(Date().timeIntervalSince(startTime) * 1000)
-                trace.recordToolCall(name: name, args: args, result: result, latencyMs: elapsed)
-            }
-        }
-    }
-
-    /// Returns the resolved model name for an agent category.
-    func modelName(for category: AgentCategory) -> String {
-        switch category {
-        case .general: return modelConfig.general
-        case .coder:   return modelConfig.coder
-        case .vision:  return modelConfig.vision
-        case .reasoner: return modelConfig.reasoner
-        case .rag:     return modelConfig.general
-        }
-    }
     var soulPrompt: String
 
     /// Ollama handles all inference. Its llama.cpp Metal backend is faster
@@ -168,16 +26,16 @@ final class Orchestrator {
     private let conversationTTL: TimeInterval = 3600 * 4
 
     // Router affinity
-    private static let affinityMinMessages = 2
-    private static let affinityTimeout: TimeInterval = 120
-    private static let affinityResetGap: TimeInterval = 300
+    static let affinityMinMessages = 2
+    static let affinityTimeout: TimeInterval = 120
+    static let affinityResetGap: TimeInterval = 300
 
     // Parallel agent execution / Mixture of Agents
     var parallelAgentsEnabled: Bool = false
     var mixtureOfAgentsEnabled: Bool = false
 
     // Fast routing patterns — deterministic, no LLM needed
-    private static let codePattern = try! NSRegularExpression(
+    static let codePattern = try! NSRegularExpression(
         pattern: """
         ```|def\\s+\\w|function\\s+\\w|class\\s+\\w|import\\s+\\w|const\\s+\\w|\
         npm\\s|pip\\s|git\\s|cargo\\s|make\\s|brew\\s|\
@@ -190,7 +48,7 @@ final class Orchestrator {
         """,
         options: [.caseInsensitive, .allowCommentsAndWhitespace]
     )
-    private static let mathPattern = try! NSRegularExpression(
+    static let mathPattern = try! NSRegularExpression(
         pattern: """
         \\bcalculate\\b|\\bsolve\\b|\\bprove\\b|\\bderivative\\b|\\bintegral\\b|\
         \\bequation\\b|\\bformula\\b|\\bprobability\\b|\\bstatistic\\b|\
@@ -201,12 +59,12 @@ final class Orchestrator {
         """,
         options: [.caseInsensitive, .allowCommentsAndWhitespace]
     )
-    private static let complexPattern = try! NSRegularExpression(
+    static let complexPattern = try! NSRegularExpression(
         pattern: "\\band\\b.*\\band\\b|\\bthen\\b|\\bstep.by.step\\b|\\bresearch\\b.*\\b(write|create|build|compare|summarize)\\b|\\bfind\\b.*\\b(and|then)\\b.*\\b(compare|summarize|write|create)\\b|\\banalyze\\b.*\\band\\b|\\bplan\\b",
         options: .caseInsensitive
     )
     // Pattern for queries that benefit from multiple perspectives
-    private static let parallelPattern = try! NSRegularExpression(
+    static let parallelPattern = try! NSRegularExpression(
         pattern: "\\bcompare\\b|\\bversus\\b|\\bvs\\b|\\bpros and cons\\b|\\bdifference between\\b|\\btradeoffs?\\b|\\bwhich is better\\b",
         options: .caseInsensitive
     )
@@ -541,67 +399,6 @@ final class Orchestrator {
         await w5
 
         Log.app.info("[orchestrator] prewarm complete")
-    }
-
-    // MARK: - Routing
-
-    private func routeMessage(conv: ConversationState, message: String, hasImages: Bool) async -> AgentCategory {
-        if let skip = shouldSkipRouter(conv: conv, message: message, hasImages: hasImages) {
-            Log.agents.info("[orchestrator] affinity skip -> \(skip.rawValue)")
-            updateAffinity(conv: conv, category: skip)
-            return skip
-        }
-
-        // Embedding router is the single source of truth for routing.
-        //
-        // Previously this called the LLM router (qwen3.5:0.8b, ~500-800ms)
-        // as a "rescue" whenever the embedding router returned `general`.
-        // That paid the LLM cost on every general turn (the majority of
-        // turns) to catch maybe 5% of misroutes — terrible ROI on the hot
-        // path. Users with stronger routing intent have explicit overrides
-        // via /code, /think, /see, /chat, /knowledge.
-        ActivityLog.shared.log(.routing, "Classifying message...")
-        let category = await embeddingRouter.classify(message: message, hasImages: hasImages)
-
-        updateAffinity(conv: conv, category: category)
-        return category
-    }
-
-    private func shouldSkipRouter(conv: ConversationState, message: String, hasImages: Bool) -> AgentCategory? {
-        if hasImages { return .vision }
-
-        let range = NSRange(message.startIndex..., in: message)
-
-        // Deterministic pattern matching — always fires, no affinity required
-        if Self.codePattern.firstMatch(in: message, range: range) != nil { return .coder }
-        if Self.mathPattern.firstMatch(in: message, range: range) != nil { return .reasoner }
-
-        // Affinity: stick with current agent for follow-up messages
-        let gap = Date().timeIntervalSince(conv.lastMessageTime)
-        if gap < Self.affinityResetGap
-            && conv.consecutiveSameAgent >= Self.affinityMinMessages
-            && gap < Self.affinityTimeout
-            && conv.currentAgent != .general {
-            return conv.currentAgent
-        }
-
-        return nil
-    }
-
-    private func updateAffinity(conv: ConversationState, category: AgentCategory) {
-        if category == conv.currentAgent {
-            conv.consecutiveSameAgent += 1
-        } else {
-            conv.consecutiveSameAgent = 1
-        }
-        conv.lastMessageTime = Date()
-    }
-
-    private func needsPlanning(_ message: String) -> Bool {
-        let words = message.split(whereSeparator: \.isWhitespace).count
-        guard words >= 6 else { return false }
-        let range = NSRange(message.startIndex..., in: message)
-        return Self.complexPattern.firstMatch(in: message, range: range) != nil
     }
 
     // MARK: - Conversations
@@ -967,14 +764,6 @@ final class Orchestrator {
         let synthesized = ThinkingStripper.strip(resp.content)
         recordTurn(user: message, assistant: synthesized, into: conv)
         return synthesized
-    }
-
-    /// Check if a message would benefit from parallel agent execution.
-    private func shouldRunParallel(_ message: String) -> [AgentCategory]? {
-        guard parallelAgentsEnabled || mixtureOfAgentsEnabled else { return nil }
-        let range = NSRange(message.startIndex..., in: message)
-        guard Self.parallelPattern.firstMatch(in: message, range: range) != nil else { return nil }
-        return [.general, .coder, .reasoner]
     }
 
     // MARK: - Commands

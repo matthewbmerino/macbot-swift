@@ -39,7 +39,14 @@ struct ToolStep: Codable {
 }
 
 /// Manages composite tools — learned multi-step workflows.
-final class CompositeToolStore {
+///
+/// `@unchecked Sendable`: the only stored property is an immutable
+/// `DatabasePool` reference (`DatabasePool` is GRDB's thread-safe pool
+/// handle). All state mutation goes through `db.write { ... }`, which
+/// GRDB serializes internally. Declaring `@unchecked Sendable` lets
+/// `registerTools(on:executor:)` pass `executor` into a `@Sendable`
+/// closure without tripping the Swift 6 non-Sendable capture check.
+final class CompositeToolStore: @unchecked Sendable {
     private let db: DatabasePool
 
     init(db: DatabasePool = DatabaseManager.shared.dbPool) {

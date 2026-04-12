@@ -1,6 +1,6 @@
 import Foundation
 
-struct PromptContext {
+struct PromptContext: Sendable {
     var agentCategory: AgentCategory = .general
     var frontmostApp: String = ""
     var lastTool: String = ""
@@ -11,10 +11,10 @@ struct PromptContext {
     var hasCodeKeywords: Bool = false
 }
 
-struct PromptModule {
+struct PromptModule: Sendable {
     let name: String
     let content: String
-    let condition: (PromptContext) -> Bool
+    let condition: @Sendable (PromptContext) -> Bool
     let priority: Int
 
     func shouldActivate(_ ctx: PromptContext) -> Bool {

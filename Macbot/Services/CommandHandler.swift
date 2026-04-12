@@ -9,7 +9,12 @@ enum CommandHandler {
         orchestrator: Orchestrator
     ) async throws -> String {
         let parts = command.split(maxSplits: 1, whereSeparator: \.isWhitespace)
-        let cmd = String(parts[0]).lowercased()
+        // Defensive guard: empty / whitespace-only input yields an empty
+        // parts array. Currently unreachable because Orchestrator.handleMessage
+        // gates dispatch on hasPrefix("/"), but any future caller that hands
+        // an empty string to handle() would crash on parts[0].
+        guard let first = parts.first else { return "Empty command." }
+        let cmd = String(first).lowercased()
         let rest = parts.count > 1 ? String(parts[1]) : ""
 
         switch cmd {
@@ -102,6 +107,9 @@ enum CommandHandler {
         case "/status":
             return try await status(conv: conv, orchestrator: orchestrator)
 
+        case "/perf":
+            return perf(conv: conv, orchestrator: orchestrator)
+
         case "/code", "/coder":
             conv.currentAgent = .coder
             guard !rest.isEmpty, let agent = conv.agents[.coder] else { return "Switched to coder." }
@@ -165,6 +173,33 @@ enum CommandHandler {
         case "/learn":
             return learn(rest: rest, orchestrator: orchestrator)
 
+        case "/director":
+            guard !rest.isEmpty else { return "Usage: /director <task description>" }
+            // Open the Director window and pass the task.
+            // The window is opened via notification; the actual streaming
+            // happens inside DirectorViewModel.
+            await MainActor.run {
+                DirectorLauncher.shared.launch(task: rest)
+            }
+            return "Opening Director..."
+
+        case "/overlay":
+            await MainActor.run { OverlayController.shared.toggle() }
+            let visible = await MainActor.run { OverlayController.shared.isVisible }
+            return visible
+                ? "Overlay activated. Draw a region or type a question. Press Esc to dismiss."
+                : "Overlay dismissed."
+
+        case "/companion":
+            let state = await MainActor.run {
+                CompanionController.shared.toggle()
+                return CompanionController.shared.isVisible ? "on" : "off"
+            }
+            return "Desktop companion: \(state)"
+
+        case "/ghost":
+            return await ghost(rest: rest)
+
         case "/help":
             return helpText
 
@@ -214,7 +249,11 @@ enum CommandHandler {
         orchestrator: Orchestrator
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         let parts = command.split(maxSplits: 1, whereSeparator: \.isWhitespace)
-        let cmd = String(parts[0]).lowercased()
+        // Defensive guard: empty / whitespace-only input yields an empty
+        // parts array. Mirrors the guard in handle() above — see comment
+        // there for context.
+        guard let first = parts.first else { return oneShot("Empty command.") }
+        let cmd = String(first).lowercased()
         let rest = parts.count > 1 ? String(parts[1]) : ""
 
         // The set of commands that delegate to an agent and benefit from
@@ -352,6 +391,38 @@ enum CommandHandler {
         """
     }
 
+    private static func perf(conv: Orchestrator.ConversationState, orchestrator: Orchestrator) -> String {
+        // RSS via mach_task_basic_info
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        let rssMB: String
+        if kr == KERN_SUCCESS {
+            let mb = Double(info.resident_size) / (1024 * 1024)
+            rssMB = String(format: "%.1f MB", mb)
+        } else {
+            rssMB = "unavailable"
+        }
+
+        let traceCount = TraceStore.shared.count()
+        let episodeCount = EpisodicMemory.shared.count()
+        let skillCount = SkillStore.shared.count()
+        let model = orchestrator.modelConfig.general
+
+        return """
+        Performance:
+          RSS memory: \(rssMB)
+          Traces: \(traceCount)
+          Episodes: \(episodeCount)
+          Skills: \(skillCount)
+          Model: \(model)
+        """
+    }
+
     private static func ingest(path: String, orchestrator: Orchestrator) async throws -> String {
         let trimmed = path.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return "Usage: /ingest <file or directory path>" }
@@ -393,6 +464,46 @@ enum CommandHandler {
 
         let id = orchestrator.compositeToolStore.save(name: name, description: desc, steps: [], triggerPhrase: trigger)
         return "Created workflow '\(name)' (id=\(id)). Trigger: \"\(trigger)\""
+    }
+
+    // MARK: - Ghost Cursor
+
+    private static func ghost(rest: String) async -> String {
+        guard !rest.isEmpty else {
+            return "Usage: /ghost <task>\nExample: /ghost open Safari and search for Swift tutorials"
+        }
+
+        let hasPermission = AccessibilityBridge.checkAccessibilityPermission()
+        guard hasPermission else {
+            AccessibilityBridge.requestAccessibilityPermission()
+            return """
+            Accessibility permission is required for Ghost Cursor.
+
+            I've opened System Settings for you. Please:
+            1. Go to Privacy & Security > Accessibility
+            2. Enable Macbot in the list
+            3. Try /ghost again after granting permission
+            """
+        }
+
+        // Parse the task into steps. For MVP we use a simple heuristic parser.
+        // A future version will send the task to the orchestrator for planning.
+        let steps = GhostStepParser.parse(task: rest)
+
+        guard !steps.isEmpty else {
+            return "Could not break that task into UI actions. Try being more specific, e.g.:\n  /ghost open TextEdit and type Hello World"
+        }
+
+        // Show what will happen before doing it
+        let preview = steps.enumerated().map { (i, s) in
+            "  \(i + 1). \(s.description)"
+        }.joined(separator: "\n")
+
+        await MainActor.run {
+            GhostCursorController.shared.start(steps: steps)
+        }
+
+        return "Ghost Cursor started (\(steps.count) steps):\n\(preview)\n\nPress Esc in the narration panel to cancel."
     }
 
     /// Pulls history from the most-active agent and asks the router model
@@ -443,7 +554,12 @@ enum CommandHandler {
       /backend — show inference backend info
       /parallel — toggle parallel agent execution
       /moa — toggle Mixture of Agents
+      /director <task> — open Director window to watch macbot work step-by-step
+      /overlay — toggle transparent screen overlay (Cmd+Shift+O)
+      /companion — toggle desktop companion character
+      /ghost <task> — ghost cursor takes over and performs UI actions
       /clear — reset conversation
       /status — system info
+      /perf — performance stats (memory, traces, episodes, skills)
     """
 }

@@ -38,11 +38,18 @@ struct Episode: Codable, FetchableRecord, MutablePersistableRecord, Identifiable
 }
 
 /// Persists and queries episodic memory. Uses the shared DatabaseManager.
-final class EpisodicMemory {
-    static let shared = EpisodicMemory()
+final class EpisodicMemory: Sendable {
+    static let shared = EpisodicMemory(dbPool: DatabaseManager.shared.dbPool)
 
-    private let dbPool = DatabaseManager.shared.dbPool
-    private init() {}
+    private let dbPool: DatabasePool
+
+    /// Inject a database pool. Production uses `.shared`, which is wired
+    /// to `DatabaseManager.shared.dbPool`. Tests use this initializer
+    /// directly with `DatabaseManager.makeTestPool()` to get hermetic
+    /// persistence coverage without touching the user's real macbot.db.
+    init(dbPool: DatabasePool) {
+        self.dbPool = dbPool
+    }
 
     // MARK: - Save
 
@@ -164,6 +171,11 @@ final class EpisodicMemory {
             Log.app.warning("[episodic] prune failed: \(error)")
             return 0
         }
+    }
+
+    /// Total number of episodes stored.
+    func count() -> Int {
+        (try? dbPool.read { try Episode.fetchCount($0) }) ?? 0
     }
 
     /// Most recent episodes, newest first.

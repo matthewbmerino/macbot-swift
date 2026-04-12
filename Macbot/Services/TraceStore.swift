@@ -87,11 +87,19 @@ final class TraceBuilder {
 /// Persistent trace store. All writes are async-safe via GRDB's pool.
 /// Foundation for the entire learning loop — every other Phase 2 system
 /// reads from here.
-final class TraceStore {
-    static let shared = TraceStore()
+final class TraceStore: Sendable {
+    static let shared = TraceStore(dbPool: DatabaseManager.shared.dbPool)
 
-    private let dbPool = DatabaseManager.shared.dbPool
-    private init() {}
+    private let dbPool: DatabasePool
+
+    /// Inject a database pool. Production uses `.shared`, which is wired
+    /// to `DatabaseManager.shared.dbPool`. Tests use this initializer
+    /// directly with `DatabaseManager.makeTestPool()` to get hermetic
+    /// persistence coverage without the UUID-sentinel-and-poll workaround
+    /// they previously needed to isolate from the shared singleton.
+    init(dbPool: DatabasePool) {
+        self.dbPool = dbPool
+    }
 
     // MARK: - Write
 

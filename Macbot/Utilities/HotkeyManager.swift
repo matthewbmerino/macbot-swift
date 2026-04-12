@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import Carbon.HIToolbox
 
+@MainActor
 final class HotkeyManager {
     static let shared = HotkeyManager()
 

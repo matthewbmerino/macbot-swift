@@ -13,7 +13,7 @@ class BaseAgent {
     var userId: String?
     var memoryStore: MemoryStore?
 
-    private var tokenCount: Int = 0
+    var tokenCount: Int = 0
 
     // Tool state tracking for PromptModules
     var lastToolUsed: String = ""
@@ -179,75 +179,9 @@ class BaseAgent {
 
     // MARK: - History Management
 
-    private func appendToHistory(_ msg: [String: Any]) {
+    func appendToHistory(_ msg: [String: Any]) {
         history.append(msg)
         tokenCount += TokenEstimator.estimate(messages: [msg])
-    }
-
-    private func trimHistory() async {
-        guard history.count >= 3 else { return }
-
-        let budget = Int(Double(numCtx) * 0.75)
-        guard tokenCount > budget else { return }
-
-        let systemMsg = history[0]
-        let msgCount = history.count
-        let middle = Array(history[1..<max(1, history.count - 4)])
-
-        let summary = await summarizeHistory(middle)
-
-        if let summary = summary, !summary.isEmpty, let memoryStore, let userId {
-            memoryStore.saveConversationSummary(userId: userId, summary: summary, messageCount: msgCount)
-        }
-
-        let tail = Array(history.suffix(4))
-        history = [systemMsg]
-
-        if let summary, !summary.isEmpty {
-            history.append([
-                "role": "system",
-                "content": "[Conversation summary so far]\n\(summary)",
-            ])
-        }
-
-        history.append(contentsOf: tail)
-        tokenCount = TokenEstimator.estimate(messages: history)
-
-        Log.agents.info("[\(self.name)] trimmed history to ~\(self.tokenCount) tokens")
-    }
-
-    private func summarizeHistory(_ messages: [[String: Any]]) async -> String? {
-        guard !messages.isEmpty else { return nil }
-
-        var lines: [String] = []
-        for msg in messages.suffix(20) {
-            let role = msg["role"] as? String ?? "?"
-            let content = msg["content"] as? String ?? ""
-            if !content.isEmpty && role != "system" {
-                lines.append("\(role): \(String(content.prefix(500)))")
-            }
-        }
-
-        let transcript = lines.joined(separator: "\n")
-        guard !transcript.isEmpty else { return nil }
-
-        do {
-            let resp = try await client.chat(
-                model: "qwen3.5:0.8b",
-                messages: [
-                    ["role": "system", "content": "Summarize this conversation concisely. Keep key facts, decisions, and context. 2-4 sentences max. No thinking tags."],
-                    ["role": "user", "content": transcript],
-                ],
-                tools: nil,
-                temperature: 0.1,
-                numCtx: 2048,
-                timeout: 30
-            )
-            return ThinkingStripper.strip(resp.content)
-        } catch {
-            Log.agents.warning("[\(self.name)] summarization failed: \(error)")
-            return nil
-        }
     }
 
     // MARK: - Planning (uses primary model for quality)
@@ -506,36 +440,6 @@ class BaseAgent {
         // Unreachable: the loop always returns on the final iteration above.
         // Kept as a defensive fallback so the function still type-checks.
         return "Max tool iterations reached."
-    }
-
-    // MARK: - ReAct Reflection
-
-    /// Evaluate whether tool results adequately address the user's query.
-    /// Returns true if more tool calls are needed, false if ready to respond.
-    private func reflect(originalQuery: String, toolResults: [String]) async -> Bool {
-        let combinedResults = toolResults.joined(separator: "\n---\n").prefix(2000)
-
-        do {
-            let resp = try await client.chat(
-                model: "qwen3.5:0.8b",
-                messages: [
-                    ["role": "system", "content": "Given a user query and tool results, determine if MORE tool calls are needed. Respond with ONLY 'CONTINUE' or 'SUFFICIENT'. CONTINUE if information is clearly missing or wrong. SUFFICIENT if we can answer."],
-                    ["role": "user", "content": "Query: \(originalQuery)\n\nResults:\n\(combinedResults)"],
-                ],
-                tools: nil,
-                temperature: 0.1,
-                numCtx: 1024,
-                timeout: 10
-            )
-
-            let answer = ThinkingStripper.strip(resp.content).uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            let needsMore = answer.contains("CONTINUE")
-            Log.agents.info("[\(self.name)] reflection: \(needsMore ? "continue" : "sufficient")")
-            return needsMore
-        } catch {
-            Log.agents.warning("[\(self.name)] reflection failed: \(error)")
-            return false  // Default to stopping if reflection fails
-        }
     }
 
     // MARK: - Run (streaming)

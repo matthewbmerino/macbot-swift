@@ -1,31 +1,21 @@
 import SwiftUI
 
-// MARK: - Obsidian Design Tokens
-
-private enum Obsidian {
-    static let bg = Color(hex: 0x111111)
-    static let surface = Color(hex: 0x1A1A1A)
-    static let border = Color.white.opacity(0.1)
-    static let cornerRadius: CGFloat = 24
-    static let innerRadius: CGFloat = 16
-}
-
 struct MenuBarView: View {
     @Bindable var viewModel: ChatViewModel
     @Environment(\.openWindow) private var openWindow
     private var monitor: SystemMonitor { SystemMonitor.shared }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             // Header
             HStack(spacing: 8) {
                 Image(systemName: "cube.transparent")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
 
-                Text("Macbot")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
+                Text("macbot")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
 
                 Spacer()
 
@@ -37,66 +27,70 @@ struct MenuBarView: View {
             SystemGaugesView()
                 .padding(.vertical, 4)
 
-            separator
+            Divider()
 
             // Last message preview (fixed height to prevent layout shifts)
             Text(lastMessagePreview)
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.5))
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
 
-            separator
+            Divider()
 
             // Quick input capsule
             HStack(spacing: 8) {
                 TextField("Quick message...", text: $viewModel.inputText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Obsidian.surface)
+                    .padding(.vertical, 8)
+                    .background(.fill.quaternary)
                     .clipShape(Capsule())
-                    .overlay(Capsule().stroke(Obsidian.border, lineWidth: 0.5))
                     .onSubmit { viewModel.send() }
                     .disabled(viewModel.isStreaming)
 
                 ProgressView()
                     .controlSize(.small)
-                    .tint(.white.opacity(0.4))
+                    .tint(.secondary)
                     .opacity(viewModel.isStreaming ? 1 : 0)
             }
 
-            separator
+            Divider()
 
-            // Actions
+            // Quick actions grid
+            FeatureButtonsGrid(openWindow: openWindow, viewModel: viewModel)
+
+            Divider()
+
+            // Footer
             HStack {
                 Button(action: { openWindow(id: "main") }) {
-                    Text("Open Window")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
-                        .background(.white.opacity(0.06))
-                        .clipShape(Capsule())
+                    HStack(spacing: 4) {
+                        Image(systemName: "macwindow")
+                            .font(.caption2)
+                        Text("Open Chat")
+                            .font(.caption2.weight(.medium))
+                    }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
 
                 Spacer()
 
                 Text(viewModel.activeAgent.displayName)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(.white.opacity(0.06))
+                    .padding(.vertical, 4)
+                    .background(.fill.tertiary)
                     .clipShape(Capsule())
             }
         }
         .padding(16)
         .frame(width: 300)
         .fixedSize(horizontal: false, vertical: true)
-        .background(Obsidian.bg)
+        .background(.ultraThinMaterial)
         .transaction { $0.animation = nil }  // Kill all implicit animations on this tree
         .onAppear {
             monitor.addObserver()
@@ -112,11 +106,120 @@ struct MenuBarView: View {
         }
         return "Ready. All processing on this Mac."
     }
+}
 
-    private var separator: some View {
-        Rectangle()
-            .fill(.white.opacity(0.05))
-            .frame(height: 0.5)
+// MARK: - Feature Buttons Grid
+
+private struct FeatureButtonsGrid: View {
+    let openWindow: OpenWindowAction
+    let viewModel: ChatViewModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            featureButton(
+                icon: "film",
+                label: "Director",
+                color: .cyan
+            ) {
+                // Small delay lets the popover dismiss before the
+                // Director window appears, avoiding focus conflicts.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    DirectorLauncher.shared.launch(task: "")
+                    if let action = DirectorLauncher.shared.openWindowAction {
+                        action("director")
+                    }
+                }
+            }
+
+            featureButton(
+                icon: "rectangle.dashed",
+                label: "Overlay",
+                color: .purple
+            ) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    OverlayController.shared.show()
+                }
+            }
+
+            featureButton(
+                icon: "sparkle",
+                label: "Companion",
+                color: .yellow
+            ) {
+                CompanionController.shared.toggle()
+            }
+
+            featureButton(
+                icon: "cursorarrow.motionlines",
+                label: "Ghost",
+                color: .orange
+            ) {
+                // Ghost needs a task typed in chat, so open the main
+                // window with /ghost pre-filled.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    openWindow(id: "main")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        viewModel.inputText = "/ghost "
+                    }
+                }
+            }
+        }
+    }
+
+    private func featureButton(
+        icon: String,
+        label: String,
+        color: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        FeatureButton(icon: icon, label: label, color: color, action: action)
+    }
+}
+
+private struct FeatureButton: View {
+    let icon: String
+    let label: String
+    let color: Color
+    let action: () -> Void
+    @State private var isHovering = false
+    @State private var isPressed = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(.fill.tertiary)
+                        .frame(width: 40, height: 40)
+
+                    Image(systemName: icon)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(color)
+                        .symbolRenderingMode(.hierarchical)
+                }
+
+                Text(label)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isHovering ? Color.primary.opacity(0.06) : .clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .scaleEffect(isPressed ? 0.93 : 1.0)
+        .onHover { isHovering = $0 }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isHovering)
+        .animation(.spring(response: 0.2, dampingFraction: 0.75), value: isPressed)
     }
 }
 
@@ -133,13 +236,13 @@ private struct LiveIndicator: View {
 
             HStack(spacing: 4) {
                 Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.system(size: 8))
+                    .font(.caption2)
                     .foregroundStyle(.green)
                     .opacity(opacity)
 
                 Text("On-Device")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.green.opacity(0.7))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.green)
             }
         }
     }
@@ -169,34 +272,30 @@ private struct SystemGaugesView: View {
         VStack(spacing: 4) {
             ZStack {
                 Circle()
-                    .stroke(color.opacity(0.1), lineWidth: 3)
+                    .stroke(color.opacity(0.15), style: StrokeStyle(lineWidth: 3, lineCap: .round))
 
                 Circle()
                     .trim(from: 0, to: CGFloat(min(value, 1.0)))
                     .stroke(
-                        AngularGradient(
-                            colors: [color.opacity(0.4), color],
-                            center: .center
-                        ),
+                        color,
                         style: StrokeStyle(lineWidth: 3, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
 
                 Text("\(Int(value * 100))")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.8))
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.primary)
             }
             .frame(width: 44, height: 44)
 
             Text(label)
-                .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.35))
-                .tracking(0.5)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
 
             if let subLabel {
                 Text(subLabel)
-                    .font(.system(size: 7, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.25))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
             }
         }
         .frame(maxWidth: .infinity)

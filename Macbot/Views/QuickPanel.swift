@@ -3,6 +3,7 @@ import AppKit
 
 // MARK: - Quick Panel Window Controller
 
+@MainActor
 final class QuickPanelController {
     static let shared = QuickPanelController()
 

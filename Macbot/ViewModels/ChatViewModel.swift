@@ -1,6 +1,16 @@
 import Foundation
 import SwiftUI
 
+/// Mutable accumulator for a single streaming send. Pinned to `@MainActor`
+/// so the detached inference task and each `MainActor.run` hop can share a
+/// Sendable reference without tripping Swift 6's captured-var rules. All
+/// mutations are serialized on the main actor.
+@MainActor
+final class ChatStreamAccumulator {
+    var responseText: String = ""
+    var agentCategory: AgentCategory?
+}
+
 @Observable
 final class ChatViewModel {
     // Current chat state
@@ -21,6 +31,11 @@ final class ChatViewModel {
     private let orchestrator: Orchestrator
     private let chatStore = ChatStore()
     private let userId = "local"
+    private var streamTask: Task<Void, Never>?
+
+    /// The message ID currently being edited. When set, the input bar shows
+    /// the edited text and the send button becomes "Resend".
+    var editingMessageId: UUID?
 
     init(orchestrator: Orchestrator) {
         self.orchestrator = orchestrator
@@ -127,30 +142,34 @@ final class ChatViewModel {
         chatStore.saveMessage(chatId: chatId, role: "user", content: messageText)
 
         // Detach from MainActor so inference runs on a background thread.
-        // UI updates hop back to MainActor explicitly.
+        // UI updates hop back to MainActor explicitly. Streaming state is
+        // held in a `@MainActor` accumulator so it can be shared across the
+        // detached task and every `MainActor.run` hop without tripping
+        // Swift 6's captured-var rules.
         let uid = userId
-        Task.detached { [orchestrator, chatStore] in
+        let acc = ChatStreamAccumulator()
+        streamTask = Task.detached { [orchestrator, chatStore] in
             let userId = uid
-            var responseText = ""
-            var agentCategory: AgentCategory?
             let startTime = CFAbsoluteTimeGetCurrent()
 
             do {
                 for try await event in orchestrator.handleMessageStream(
                     userId: userId, message: messageText, images: attachedImages
                 ) {
+                    // Respect cancellation from cancelStream()
+                    try Task.checkCancellation()
                     await MainActor.run { [self] in
                         switch event {
                         case .text(let chunk):
-                            responseText += chunk
+                            acc.responseText += chunk
                             self.currentStatus = nil
-                            self.updateLastAgentMessage(responseText, agent: agentCategory)
+                            self.updateLastAgentMessage(acc.responseText, agent: acc.agentCategory)
 
                         case .status(let status):
                             self.currentStatus = status
 
                         case .agentSelected(let category):
-                            agentCategory = category
+                            acc.agentCategory = category
                             self.activeAgent = category
 
                         case .image(let data, _):
@@ -161,29 +180,34 @@ final class ChatViewModel {
                                 last.images = imgs
                                 self.messages.append(last)
                             } else {
-                                var msg = ChatMessage(role: .assistant, content: "", agentCategory: agentCategory)
+                                var msg = ChatMessage(role: .assistant, content: "", agentCategory: acc.agentCategory)
                                 msg.images = [data]
                                 self.messages.append(msg)
                             }
                         }
                     }
                 }
+            } catch is CancellationError {
+                // User cancelled — keep the partial response, don't show an error
+                Log.agents.info("Stream cancelled by user")
             } catch {
                 let errorMsg = "Something went wrong: \(error.localizedDescription)"
                 Log.agents.error("Chat error: \(error)")
                 await MainActor.run { [self] in
-                    self.updateLastAgentMessage(errorMsg, agent: agentCategory)
-                    responseText = errorMsg
+                    self.updateLastAgentMessage(errorMsg, agent: acc.agentCategory)
+                    acc.responseText = errorMsg
                 }
             }
 
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-            let tokens = TokenEstimator.estimate(responseText)
-            let tps = elapsed > 0 ? Double(tokens) / elapsed : 0
-
-            let modelName: String? = agentCategory.map { self.orchestrator.modelName(for: $0) }
 
             await MainActor.run { [self] in
+                let responseText = acc.responseText
+                let agentCategory = acc.agentCategory
+                let tokens = TokenEstimator.estimate(responseText)
+                let tps = elapsed > 0 ? Double(tokens) / elapsed : 0
+                let modelName: String? = agentCategory.map { self.orchestrator.modelName(for: $0) }
+
                 if self.messages.last?.role != .assistant {
                     let fallback = responseText.isEmpty
                         ? "No response — Ollama may still be loading. Try again in a moment."
@@ -225,6 +249,49 @@ final class ChatViewModel {
                 role: .assistant, content: text, agentCategory: agent
             ))
         }
+    }
+
+    // MARK: - Cancel / Edit / Resend
+
+    /// Stop the current generation mid-stream. The partial response is kept
+    /// in the message list so the user can see what was generated before
+    /// cancellation.
+    @MainActor
+    func cancelStream() {
+        streamTask?.cancel()
+        streamTask = nil
+        isStreaming = false
+        currentStatus = nil
+    }
+
+    /// Begin editing a previously-sent user message. Populates the input
+    /// bar with the message text and sets `editingMessageId` so the UI can
+    /// show "Resend" instead of "Send".
+    @MainActor
+    func startEditing(message: ChatMessage) {
+        guard message.role == .user else { return }
+        // Cancel any in-flight generation first
+        cancelStream()
+        editingMessageId = message.id
+        inputText = message.content
+    }
+
+    /// Resend after editing. Removes everything from the edited message
+    /// onward (the old user message + the assistant response that followed
+    /// it), then sends the new text as a fresh turn.
+    @MainActor
+    func resendEdited() {
+        guard let editId = editingMessageId else {
+            send()
+            return
+        }
+        // Find the index of the message being edited
+        if let idx = messages.firstIndex(where: { $0.id == editId }) {
+            // Remove from that message onward (user msg + all subsequent)
+            messages.removeSubrange(idx...)
+        }
+        editingMessageId = nil
+        send()
     }
 
     func clearConversation() {

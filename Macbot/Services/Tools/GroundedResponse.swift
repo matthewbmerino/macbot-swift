@@ -78,7 +78,14 @@ enum GroundedResponse {
         formatter.string(from: date)
     }
 
-    private static let formatter: ISO8601DateFormatter = {
+    // `nonisolated(unsafe)`: `ISO8601DateFormatter` is documented as
+    // thread-safe in modern Foundation (its `string(from:)` / `date(from:)`
+    // methods may be called from any thread), and this instance is fully
+    // configured at initialisation and never mutated afterwards. The
+    // declaration is a `let`, so all access is read-only. This is the
+    // pragmatic escape hatch called out in the Wave 2B instructions for
+    // immutable-after-init formatters.
+    nonisolated(unsafe) private static let formatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         f.timeZone = TimeZone(secondsFromGMT: 0)

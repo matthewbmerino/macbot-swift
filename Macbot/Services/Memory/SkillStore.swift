@@ -41,15 +41,17 @@ struct Skill: Codable, FetchableRecord, MutablePersistableRecord, Identifiable {
 /// piece of the learning loop: this is the difference between "macbot
 /// answers your question today" and "macbot is measurably better at
 /// answering your kind of questions next week."
-final class SkillStore {
+final class SkillStore: Sendable {
     static let shared = SkillStore()
 
-    private let dbPool = DatabaseManager.shared.dbPool
+    private let dbPool: DatabasePool
     /// Cosine similarity threshold above which a new skill is considered
     /// duplicate and merged into the existing one (bump useCount).
     private let dedupeThreshold: Float = 0.85
 
-    private init() {}
+    private init() {
+        self.dbPool = DatabaseManager.shared.dbPool
+    }
 
     // MARK: - Distillation
 
