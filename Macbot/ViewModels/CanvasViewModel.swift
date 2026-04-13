@@ -57,6 +57,17 @@ final class CanvasViewModel {
     var aiStreamingNodeId: UUID?
     /// Tracks active streaming node IDs during council (multiple simultaneous)
     var activeCouncilNodeIds: Set<UUID> = []
+    /// The running AI task — stored so it can be cancelled.
+    private var aiTask: Task<Void, Never>?
+
+    /// Cancel any in-flight AI generation.
+    func cancelAI() {
+        aiTask?.cancel()
+        aiTask = nil
+        isProcessingAI = false
+        aiStreamingNodeId = nil
+        activeCouncilNodeIds.removeAll()
+    }
 
     // MARK: - Canvas Chat
 
@@ -359,6 +370,10 @@ final class CanvasViewModel {
     }
 
     func deleteSelected() {
+        // Cancel AI if the streaming node is being deleted
+        if let streamingId = aiStreamingNodeId, selectedIds.contains(streamingId) {
+            cancelAI()
+        }
         pushUndo()
         let ids = selectedIds
         nodes.removeAll { ids.contains($0.id) }
@@ -654,7 +669,7 @@ final class CanvasViewModel {
 
         isProcessingAI = true
 
-        Task { @MainActor [weak self] in
+        aiTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var accumulated = ""
 
@@ -662,6 +677,7 @@ final class CanvasViewModel {
                 for try await event in orchestrator.handleMessageStream(
                     userId: "canvas", message: fullPrompt
                 ) {
+                    try Task.checkCancellation()
                     switch event {
                     case .text(let chunk):
                         accumulated += chunk
@@ -678,6 +694,8 @@ final class CanvasViewModel {
                         break
                     }
                 }
+            } catch is CancellationError {
+                // Cancelled — keep partial response
             } catch {
                 if accumulated.isEmpty {
                     accumulated = "Error: \(error.localizedDescription)"
@@ -689,6 +707,7 @@ final class CanvasViewModel {
 
             self.isProcessingAI = false
             self.aiStreamingNodeId = nil
+            self.aiTask = nil
             self.scheduleSave()
         }
     }
@@ -743,7 +762,7 @@ final class CanvasViewModel {
 
         isProcessingAI = true
 
-        Task { @MainActor [weak self] in
+        aiTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var accumulated = ""
 
@@ -751,6 +770,7 @@ final class CanvasViewModel {
                 for try await event in orchestrator.handleMessageStream(
                     userId: "canvas-exec", message: fullPrompt
                 ) {
+                    try Task.checkCancellation()
                     switch event {
                     case .text(let chunk):
                         accumulated += chunk
@@ -767,6 +787,8 @@ final class CanvasViewModel {
                         break
                     }
                 }
+            } catch is CancellationError {
+                // Cancelled — keep partial response
             } catch {
                 if accumulated.isEmpty {
                     accumulated = "Error: \(error.localizedDescription)"
@@ -778,6 +800,7 @@ final class CanvasViewModel {
 
             self.isProcessingAI = false
             self.aiStreamingNodeId = nil
+            self.aiTask = nil
             self.scheduleSave()
         }
     }

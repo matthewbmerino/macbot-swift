@@ -741,22 +741,39 @@ struct CanvasView: View {
 
     // MARK: - AI Processing Overlay
 
+    /// Cancel button positioned at the midpoint of the edge between
+    /// source nodes and the streaming AI node.
     private var aiProcessingOverlay: some View {
-        VStack {
-            HStack(spacing: MacbotDS.Space.sm) {
-                ProgressView()
-                    .scaleEffect(0.7)
-                Text("macbot is thinking...")
-                    .font(MacbotDS.Typo.detail)
-                    .foregroundStyle(MacbotDS.Colors.textSec)
+        Group {
+            if let streamingId = viewModel.aiStreamingNodeId,
+               let streamingNode = viewModel.nodes.first(where: { $0.id == streamingId }),
+               let sourceEdge = viewModel.edges.first(where: { $0.toId == streamingId }),
+               let sourceNode = viewModel.nodes.first(where: { $0.id == sourceEdge.fromId }) {
+
+                let p1 = viewModel.canvasToView(sourceNode.position)
+                let p2 = viewModel.canvasToView(streamingNode.position)
+                let mid = CGPoint(x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2)
+
+                Button(action: { viewModel.cancelAI() }) {
+                    HStack(spacing: MacbotDS.Space.xs) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.caption)
+                            .symbolRenderingMode(.hierarchical)
+                        Text("Stop")
+                            .font(MacbotDS.Typo.detail)
+                    }
+                    .foregroundStyle(MacbotDS.Colors.warning)
+                    .padding(.horizontal, MacbotDS.Space.md)
+                    .padding(.vertical, MacbotDS.Space.sm)
+                    .background(MacbotDS.Mat.chrome)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(MacbotDS.Colors.warning.opacity(0.3), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+                }
+                .buttonStyle(.plain)
+                .position(mid)
+                .transition(.scale.combined(with: .opacity))
             }
-            .padding(.horizontal, MacbotDS.Space.md)
-            .padding(.vertical, MacbotDS.Space.sm)
-            .background(MacbotDS.Mat.chrome)
-            .clipShape(Capsule())
-            .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
-            .padding(.top, MacbotDS.Space.md)
-            Spacer()
         }
     }
 
