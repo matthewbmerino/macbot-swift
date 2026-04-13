@@ -1531,6 +1531,13 @@ struct CanvasNodeView: View {
                 }
             }
 
+            // 3D Scene (interactive SceneKit viewport)
+            if let sceneData = node.sceneData {
+                SceneKitNodeView(sceneDescription: sceneData)
+                    .frame(height: 200)
+                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+            }
+
             // Images (from AI generation)
             if let images = node.images, !images.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {

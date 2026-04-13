@@ -745,20 +745,60 @@ final class CanvasViewModel {
 
         let userText = selected.map(\.text).joined(separator: "\n\n")
 
-        let fullPrompt = """
-        You are an action-oriented AI assistant. The user wrote the following on their canvas. Treat it as a direct request or instruction and execute it immediately.
+        // Detect if the request is for a 3D object
+        let is3DRequest = Self.is3DRequest(userText)
 
-        \(userText)
+        let fullPrompt: String
+        if is3DRequest {
+            fullPrompt = """
+            The user wants a 3D object or scene. Respond ONLY with a JSON code block describing the scene. No other text.
 
-        Rules:
-        - If they ask for information (metrics, time, weather, data), fetch and provide it directly.
-        - If they ask for code, write the code immediately.
-        - If they ask for an image, generate it.
-        - If they write a topic or concept, provide a thorough, useful summary.
-        - If they write a question, answer it directly.
-        - Never ask what they mean. Never ask follow-up questions. Just do it.
-        - Format your response clearly using Markdown.
-        """
+            Use this exact format:
+            ```json
+            {
+              "objects": [
+                {
+                  "shape": "sphere",
+                  "size": 1.0,
+                  "color": "#4499DD",
+                  "metalness": 0.3,
+                  "roughness": 0.4,
+                  "position": {"x": 0, "y": 0, "z": 0}
+                }
+              ],
+              "cameraDistance": 5.0,
+              "showFloor": true
+            }
+            ```
+
+            Available shapes: sphere, box, cylinder, cone, torus, plane, pyramid, capsule, tube, text3D
+            For text3D, add "textContent": "the text"
+            For box, add "chamfer": 0.05
+            For torus, add "pipeRadius": 0.3
+            Use "height" for cylinder, cone, capsule, tube, pyramid
+            Use "rotation": {"x": 45, "y": 0, "z": 0} for rotation in degrees
+            Use hex colors like "#FF6633"
+
+            User request: \(userText)
+
+            Respond with ONLY the JSON code block. Make it look good — use appealing colors, proper proportions, and a floor if appropriate.
+            """
+        } else {
+            fullPrompt = """
+            You are an action-oriented AI assistant. The user wrote the following on their canvas. Treat it as a direct request or instruction and execute it immediately.
+
+            \(userText)
+
+            Rules:
+            - If they ask for information (metrics, time, weather, data), fetch and provide it directly.
+            - If they ask for code, write the code immediately.
+            - If they ask for an image, generate it.
+            - If they write a topic or concept, provide a thorough, useful summary.
+            - If they write a question, answer it directly.
+            - Never ask what they mean. Never ask follow-up questions. Just do it.
+            - Format your response clearly using Markdown.
+            """
+        }
 
         isProcessingAI = true
 
@@ -776,6 +816,11 @@ final class CanvasViewModel {
                         accumulated += chunk
                         if let idx = self.nodes.firstIndex(where: { $0.id == resultNode.id }) {
                             self.nodes[idx].text = accumulated
+                            // Try to parse 3D scene from response
+                            if is3DRequest, let scene = Self.parseSceneJSON(accumulated) {
+                                self.nodes[idx].sceneData = scene
+                                self.nodes[idx].width = 320
+                            }
                         }
                     case .image(let data, _):
                         if let idx = self.nodes.firstIndex(where: { $0.id == resultNode.id }) {
@@ -795,6 +840,16 @@ final class CanvasViewModel {
                     if let idx = self.nodes.firstIndex(where: { $0.id == resultNode.id }) {
                         self.nodes[idx].text = accumulated
                     }
+                }
+            }
+
+            // Final parse attempt for 3D
+            if is3DRequest, let idx = self.nodes.firstIndex(where: { $0.id == resultNode.id }) {
+                if let scene = Self.parseSceneJSON(accumulated) {
+                    self.nodes[idx].sceneData = scene
+                    self.nodes[idx].width = 320
+                    // Clear the raw JSON text since we have the rendered scene
+                    self.nodes[idx].text = ""
                 }
             }
 
@@ -1084,6 +1139,38 @@ final class CanvasViewModel {
             height: viewSize.height / 2 - centerY * fitScale
         )
         lastCommittedOffset = offset
+    }
+
+    // MARK: - 3D Detection & Parsing
+
+    private static let scene3DKeywords = [
+        "sphere", "cube", "box", "cylinder", "cone", "torus", "pyramid",
+        "3d", "3D", "object", "shape", "render", "model", "capsule",
+        "tube", "donut", "ring", "geometry", "mesh", "scene"
+    ]
+
+    static func is3DRequest(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let matchCount = scene3DKeywords.filter { lower.contains($0.lowercased()) }.count
+        // Require at least one 3D keyword and the text should be short (a request, not a paragraph)
+        return matchCount >= 1 && text.count < 200
+    }
+
+    /// Extract JSON from a response that may contain markdown code fences.
+    static func parseSceneJSON(_ text: String) -> SceneDescription? {
+        // Try to find ```json ... ``` block
+        var jsonString = text
+        if let start = text.range(of: "```json") ?? text.range(of: "```"),
+           let end = text.range(of: "```", range: start.upperBound..<text.endIndex) {
+            jsonString = String(text[start.upperBound..<end.lowerBound])
+        } else if let start = text.range(of: "{"),
+                  let end = text.range(of: "}", options: .backwards) {
+            jsonString = String(text[start.lowerBound...end.upperBound])
+        }
+
+        guard let data = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
+                .data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(SceneDescription.self, from: data)
     }
 
     // MARK: - Coordinate conversion
