@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import CoreTransferable
 
 /// Where a canvas node's content originated.
@@ -76,17 +77,35 @@ struct CanvasNode: Identifiable, Equatable {
         return false
     }
 
+    static func == (lhs: CanvasNode, rhs: CanvasNode) -> Bool {
+        lhs.id == rhs.id
+            && lhs.position == rhs.position
+            && lhs.text == rhs.text
+            && lhs.width == rhs.width
+            && lhs.color == rhs.color
+            && lhs.source == rhs.source
+            && lhs.groupId == rhs.groupId
+            && lhs.displayMode == rhs.displayMode
+            && lhs.viewportHeight == rhs.viewportHeight
+    }
+
     enum NodeColor: String, CaseIterable {
         case note, idea, task, reference, ai
 
         var hue: Double {
             switch self {
-            case .note:      return 0.0        // neutral
-            case .idea:      return 0.13        // amber
-            case .task:      return 0.58        // cyan
-            case .reference: return 0.75        // purple
-            case .ai:        return 0.35        // green-teal
+            case .note:      return 0.0
+            case .idea:      return 0.13
+            case .task:      return 0.58
+            case .reference: return 0.75
+            case .ai:        return 0.35
             }
+        }
+
+        /// Canonical SwiftUI color for this node type.
+        var accentColor: Color {
+            if self == .note { return Color.secondary }
+            return Color(hue: hue, saturation: 0.5, brightness: 0.85)
         }
     }
 }

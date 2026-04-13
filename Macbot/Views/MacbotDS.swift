@@ -31,6 +31,8 @@ enum MacbotDS {
         static let caption = Font.caption
         static let detail = Font.caption2.weight(.medium)
         static let mono = Font.caption2.monospaced()
+        static let micro = Font.system(size: 9, weight: .medium)
+        static let micro2 = Font.system(size: 8)
     }
 
     enum Radius {

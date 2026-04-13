@@ -12,7 +12,11 @@ struct CanvasView: View {
     @State private var canvasRenameText = ""
     @FocusState private var canvasFocused: Bool
 
-    /// Center of the canvas viewport in view coordinates (for keyboard zoom).
+    /// O(1) node lookup for edge rendering.
+    private var nodeById: [UUID: CanvasNode] {
+        Dictionary(uniqueKeysWithValues: viewModel.nodes.map { ($0.id, $0) })
+    }
+
     private var viewCenter: CGPoint {
         CGPoint(x: viewModel.viewSize.width / 2, y: viewModel.viewSize.height / 2)
     }
@@ -263,10 +267,7 @@ struct CanvasView: View {
                                 }) {
                                     HStack(spacing: MacbotDS.Space.sm) {
                                         Circle()
-                                            .fill(result.nodeColor == "note"
-                                                  ? Color.secondary
-                                                  : Color(hue: CanvasNode.NodeColor(rawValue: result.nodeColor)?.hue ?? 0,
-                                                          saturation: 0.5, brightness: 0.85))
+                                            .fill((CanvasNode.NodeColor(rawValue: result.nodeColor) ?? .note).accentColor)
                                             .frame(width: 8, height: 8)
 
                                         VStack(alignment: .leading, spacing: 2) {
@@ -567,8 +568,8 @@ struct CanvasView: View {
     private var edgesLayer: some View {
         Canvas { ctx, _ in
             for edge in viewModel.edges {
-                guard let from = viewModel.nodes.first(where: { $0.id == edge.fromId }),
-                      let to = viewModel.nodes.first(where: { $0.id == edge.toId }) else { continue }
+                guard let from = nodeById[edge.fromId],
+                      let to = nodeById[edge.toId] else { continue }
 
                 let p1 = viewModel.canvasToView(from.position)
                 let p2 = viewModel.canvasToView(to.position)
@@ -640,8 +641,8 @@ struct CanvasView: View {
 
     private var edgeLabelsLayer: some View {
         ForEach(viewModel.edges) { edge in
-            if let from = viewModel.nodes.first(where: { $0.id == edge.fromId }),
-               let to = viewModel.nodes.first(where: { $0.id == edge.toId }) {
+            if let from = nodeById[edge.fromId],
+               let to = nodeById[edge.toId] {
                 let p1 = viewModel.canvasToView(from.position)
                 let p2 = viewModel.canvasToView(to.position)
                 let midpoint = CGPoint(x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2)
@@ -791,7 +792,7 @@ struct CanvasView: View {
     private var pendingEdgeLayer: some View {
         Canvas { ctx, _ in
             guard let fromId = viewModel.pendingEdgeFromId,
-                  let from = viewModel.nodes.first(where: { $0.id == fromId }) else { return }
+                  let from = nodeById[fromId] else { return }
 
             let p1 = viewModel.canvasToView(from.position)
             let p2 = viewModel.pendingEdgeEnd
@@ -1289,9 +1290,7 @@ struct CanvasView: View {
             ForEach(CanvasNode.NodeColor.allCases, id: \.self) { color in
                 Button(action: { viewModel.setColor(color) }) {
                     Circle()
-                        .fill(color == .note
-                              ? Color.secondary
-                              : Color(hue: color.hue, saturation: 0.5, brightness: 0.85))
+                        .fill(color.accentColor)
                         .frame(width: 14, height: 14)
                         .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
                 }
@@ -1681,425 +1680,5 @@ struct CanvasView: View {
     }
 }
 
-// MARK: - Edge Label Editor
-
-private struct EdgeLabelEditor: View {
-    @Binding var text: String
-    var onCommit: () -> Void
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        TextField("Label...", text: $text)
-            .textFieldStyle(.plain)
-            .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(MacbotDS.Colors.textPri)
-            .frame(width: 100)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(MacbotDS.Mat.chrome)
-            .clipShape(Capsule())
-            .overlay(Capsule().stroke(MacbotDS.Colors.accent.opacity(0.4), lineWidth: 0.5))
-            .focused($focused)
-            .onAppear { focused = true }
-            .onSubmit { onCommit() }
-            .onKeyPress(.escape) {
-                onCommit()
-                return .handled
-            }
-    }
-}
-
-// MARK: - Group Frame
-
-struct CanvasGroupFrame: View {
-    let group: CanvasGroup
-    let scale: CGFloat
-    var onRename: (String) -> Void
-    var onDelete: () -> Void
-
-    @State private var isEditingTitle = false
-    @State private var titleText = ""
-
-    private var groupColor: Color {
-        if group.color == .note {
-            return MacbotDS.Colors.textTer
-        }
-        return Color(hue: group.color.hue, saturation: 0.3, brightness: 0.8)
-    }
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: MacbotDS.Radius.md, style: .continuous)
-                .fill(groupColor.opacity(0.04))
-                .overlay(
-                    RoundedRectangle(cornerRadius: MacbotDS.Radius.md, style: .continuous)
-                        .stroke(groupColor.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
-                )
-                .frame(width: group.size.width, height: group.size.height)
-
-            // Title
-            if isEditingTitle {
-                TextField("Group name", text: $titleText)
-                    .textFieldStyle(.plain)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(groupColor)
-                    .frame(width: 120)
-                    .padding(.horizontal, MacbotDS.Space.sm)
-                    .padding(.vertical, MacbotDS.Space.xs)
-                    .background(MacbotDS.Mat.float)
-                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm))
-                    .padding(MacbotDS.Space.sm)
-                    .onSubmit {
-                        onRename(titleText)
-                        isEditingTitle = false
-                    }
-                    .onKeyPress(.escape) {
-                        isEditingTitle = false
-                        return .handled
-                    }
-            } else {
-                Text(group.title)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(groupColor)
-                    .padding(.horizontal, MacbotDS.Space.sm)
-                    .padding(.vertical, MacbotDS.Space.xs)
-                    .padding(MacbotDS.Space.sm)
-                    .onTapGesture(count: 2) {
-                        titleText = group.title
-                        isEditingTitle = true
-                    }
-            }
-        }
-        .contextMenu {
-            Button("Rename") {
-                titleText = group.title
-                isEditingTitle = true
-            }
-            Button("Delete Group", role: .destructive) { onDelete() }
-        }
-    }
-}
-
-// MARK: - Individual Node Card
-
-struct CanvasNodeView: View {
-    let node: CanvasNode
-    let isSelected: Bool
-    let isEditing: Bool
-    let isAIStreaming: Bool
-    let isEntered3D: Bool
-    let scale: CGFloat
-    var onTextChange: (String) -> Void
-    var onCommitEdit: () -> Void
-    var onStartEdge: () -> Void
-
-    @State private var localText: String = ""
-    @FocusState private var textFocused: Bool
-
-    var body: some View {
-        if node.displayMode == .viewport3D {
-            viewport3DBody
-        } else {
-            cardBody
-        }
-    }
-
-    // MARK: - Viewport 3D Mode (free-floating)
-
-    private var viewport3DBody: some View {
-        VStack(spacing: 0) {
-            // Thin toolbar strip — drag handle
-            HStack(spacing: MacbotDS.Space.xs) {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 9))
-                    .foregroundStyle(MacbotDS.Colors.textTer)
-                Spacer()
-                if isEntered3D {
-                    Text("Orbit · Esc to exit")
-                        .font(.system(size: 9))
-                        .foregroundStyle(MacbotDS.Colors.accent.opacity(0.7))
-                } else {
-                    Text("Double-click to interact")
-                        .font(.system(size: 9))
-                        .foregroundStyle(MacbotDS.Colors.textTer)
-                }
-                Spacer()
-                Button(action: onStartEdge) {
-                    Image(systemName: "point.forward.to.point.capsulepath.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(MacbotDS.Colors.textTer)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, MacbotDS.Space.sm)
-            .padding(.vertical, 4)
-            .background(MacbotDS.Colors.bg.opacity(0.6))
-
-            // 3D viewport
-            if let sceneData = node.sceneData {
-                SceneKitNodeView(sceneDescription: sceneData, isInteractive: isEntered3D)
-                    .frame(height: node.viewportHeight ?? 250)
-            }
-        }
-        .frame(width: node.width)
-        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
-                .stroke(
-                    isEntered3D ? MacbotDS.Colors.accent :
-                        isSelected ? MacbotDS.Colors.textSec :
-                        MacbotDS.Colors.separator.opacity(0.3),
-                    lineWidth: isEntered3D ? 2 : isSelected ? 1.5 : 0.5
-                )
-        )
-        .shadow(
-            color: isEntered3D ? MacbotDS.Colors.accent.opacity(0.15) : .black.opacity(0.12),
-            radius: isEntered3D ? 16 : 8,
-            y: 4
-        )
-    }
-
-    // MARK: - Card Mode (existing)
-
-    private var cardBody: some View {
-        VStack(alignment: .leading, spacing: MacbotDS.Space.xs) {
-            nodeHeader
-
-            if isEditing {
-                TextEditor(text: $localText)
-                    .font(.caption)
-                    .foregroundStyle(MacbotDS.Colors.textPri)
-                    .scrollContentBackground(.hidden)
-                    .focused($textFocused)
-                    .frame(minHeight: 40, maxHeight: 200)
-                    .onAppear {
-                        localText = node.text
-                        textFocused = true
-                    }
-                    .onChange(of: localText) { _, newValue in
-                        onTextChange(newValue)
-                    }
-                    .onKeyPress(.escape) {
-                        onCommitEdit()
-                        return .handled
-                    }
-            } else {
-                if node.text.isEmpty {
-                    Text("Double-click to edit...")
-                        .font(.caption)
-                        .foregroundStyle(MacbotDS.Colors.textTer)
-                        .italic()
-                } else if isAIStreaming {
-                    // Plain text during streaming — avoid expensive Markdown parsing
-                    Text(node.text)
-                        .font(.caption)
-                        .foregroundStyle(MacbotDS.Colors.textPri)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    // Rendered Markdown for display
-                    Markdown(node.text)
-                        .markdownTextStyle {
-                            FontSize(11)
-                            ForegroundColor(MacbotDS.Colors.textPri)
-                        }
-                        .markdownBlockStyle(\.codeBlock) { configuration in
-                            configuration.label
-                                .padding(MacbotDS.Space.sm)
-                                .background(.fill.quaternary)
-                                .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                        }
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            // 3D Scene (interactive SceneKit viewport)
-            if let sceneData = node.sceneData {
-                SceneKitNodeView(sceneDescription: sceneData, isInteractive: isEntered3D)
-                    .frame(height: 200)
-                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-            }
-
-            // Images (from AI generation)
-            if let images = node.images, !images.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: MacbotDS.Space.xs) {
-                        ForEach(Array(images.enumerated()), id: \.offset) { _, data in
-                            if let nsImage = NSImage(data: data) {
-                                Image(nsImage: nsImage)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(maxHeight: 160)
-                                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Source footer
-            switch node.source {
-            case .chat(let origin):
-                chatFooter(origin)
-            case .ai(let origin):
-                aiFooter(origin)
-            case .manual:
-                EmptyView()
-            }
-        }
-        .padding(MacbotDS.Space.md)
-        .frame(width: node.width)
-        .background(nodeBackground)
-        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.md, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: MacbotDS.Radius.md, style: .continuous)
-                .stroke(borderColor, lineWidth: borderWidth)
-        )
-        .shadow(
-            color: isSelected ? nodeAccent.opacity(0.2) : .black.opacity(0.08),
-            radius: isSelected ? 12 : 6,
-            y: isSelected ? 2 : 3
-        )
-        .opacity(isAIStreaming ? 0.9 : 1.0)
-        .animation(isAIStreaming ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true) : .default, value: isAIStreaming)
-    }
-
-    private var borderColor: Color {
-        if isAIStreaming { return MacbotDS.Colors.accent }
-        if isSelected { return nodeAccent }
-        return MacbotDS.Colors.separator
-    }
-
-    private var borderWidth: CGFloat {
-        if isAIStreaming { return 2.0 }
-        if isSelected { return 1.5 }
-        return 0.5
-    }
-
-    // MARK: - Header variants
-
-    @ViewBuilder
-    private var nodeHeader: some View {
-        switch node.source {
-        case .chat(let origin):
-            chatHeader(origin)
-        case .ai(let origin):
-            aiHeader(origin)
-        case .manual:
-            manualHeader
-        }
-    }
-
-    private func chatHeader(_ origin: NodeSource.ChatOrigin) -> some View {
-        HStack(spacing: MacbotDS.Space.sm) {
-            Image(systemName: origin.role == .user ? "person.circle.fill" : "cube.transparent.fill")
-                .font(.caption)
-                .foregroundStyle(origin.role == .user ? MacbotDS.Colors.textSec : MacbotDS.Colors.accent)
-
-            Text(origin.role == .user ? "You" : "macbot")
-                .font(MacbotDS.Typo.detail)
-                .foregroundStyle(MacbotDS.Colors.textPri)
-
-            if let agent = origin.agentCategory {
-                Text(agent.displayName)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(MacbotDS.Colors.textTer)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(.fill.tertiary)
-                    .clipShape(Capsule())
-            }
-
-            Spacer()
-
-            Button(action: onStartEdge) {
-                Image(systemName: "point.forward.to.point.capsulepath.fill")
-                    .font(.caption2)
-                    .foregroundStyle(MacbotDS.Colors.textTer)
-            }
-            .buttonStyle(.plain)
-            .help("Connect to another node")
-        }
-    }
-
-    private func aiHeader(_ origin: NodeSource.AIOrigin) -> some View {
-        HStack(spacing: MacbotDS.Space.sm) {
-            Image(systemName: "sparkles")
-                .font(.caption)
-                .foregroundStyle(Color(hue: 0.35, saturation: 0.6, brightness: 0.85))
-
-            Text(origin.action.capitalized)
-                .font(MacbotDS.Typo.detail)
-                .foregroundStyle(MacbotDS.Colors.textPri)
-
-            Spacer()
-
-            Button(action: onStartEdge) {
-                Image(systemName: "point.forward.to.point.capsulepath.fill")
-                    .font(.caption2)
-                    .foregroundStyle(MacbotDS.Colors.textTer)
-            }
-            .buttonStyle(.plain)
-            .help("Connect to another node")
-        }
-    }
-
-    private var manualHeader: some View {
-        HStack(spacing: MacbotDS.Space.sm) {
-            Circle()
-                .fill(nodeAccent)
-                .frame(width: 8, height: 8)
-
-            Text(node.color.rawValue.capitalized)
-                .font(MacbotDS.Typo.detail)
-                .foregroundStyle(MacbotDS.Colors.textTer)
-
-            Spacer()
-
-            Button(action: onStartEdge) {
-                Image(systemName: "point.forward.to.point.capsulepath.fill")
-                    .font(.caption2)
-                    .foregroundStyle(MacbotDS.Colors.textTer)
-            }
-            .buttonStyle(.plain)
-            .help("Connect to another node")
-        }
-    }
-
-    // MARK: - Footers
-
-    private func chatFooter(_ origin: NodeSource.ChatOrigin) -> some View {
-        HStack(spacing: MacbotDS.Space.xs) {
-            Image(systemName: "bubble.left.and.text.bubble.right")
-                .font(.system(size: 8))
-            Text(origin.chatTitle)
-                .lineLimit(1)
-        }
-        .font(.system(size: 9))
-        .foregroundStyle(MacbotDS.Colors.textTer)
-    }
-
-    private func aiFooter(_ origin: NodeSource.AIOrigin) -> some View {
-        HStack(spacing: MacbotDS.Space.xs) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 8))
-            Text("Generated")
-        }
-        .font(.system(size: 9))
-        .foregroundStyle(Color(hue: 0.35, saturation: 0.4, brightness: 0.7))
-    }
-
-    // MARK: - Styling
-
-    private var nodeAccent: Color {
-        if node.color == .note {
-            return MacbotDS.Colors.textSec
-        }
-        return Color(hue: node.color.hue, saturation: 0.5, brightness: 0.85)
-    }
-
-    private var nodeBackground: some ShapeStyle {
-        MacbotDS.Mat.chrome
-    }
-}
+// EdgeLabelEditor, CanvasGroupFrame, and CanvasNodeView have been
+// extracted to Macbot/Views/Canvas/
