@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Assets/macbot-logo.png" width="280" alt="macbot logo">
+</p>
+
 # macbot
 
 Native macOS AI assistant — private, on-device, always aware.
