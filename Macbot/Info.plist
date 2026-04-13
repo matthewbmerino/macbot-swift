@@ -36,5 +36,22 @@
     <string>macbot can read your calendar to help with scheduling. Calendar data stays on this device.</string>
     <key>NSContactsUsageDescription</key>
     <string>macbot can access contacts for communication features. Contact data stays on this device.</string>
+
+    <!-- Exported UTTypes for drag-and-drop -->
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.macbot.chat-drag</string>
+            <key>UTTypeDescription</key>
+            <string>Macbot Chat Drag Item</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict/>
+        </dict>
+    </array>
 </dict>
 </plist>

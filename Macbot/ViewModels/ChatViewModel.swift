@@ -15,8 +15,33 @@ final class ChatStreamAccumulator {
     static let flushInterval: CFAbsoluteTime = 0.1  // 10 fps max
 }
 
+/// Whether the main content area shows the chat or the canvas.
+enum ContentMode: String { case chat, canvas }
+
 @Observable
 final class ChatViewModel {
+    // View mode
+    var contentMode: ContentMode = .chat
+    let canvasViewModel = CanvasViewModel()
+
+    /// Sync the canvas chat browser with the current chat list.
+    func refreshCanvasChats() {
+        canvasViewModel.availableChats = chats
+    }
+
+    /// Load messages for a given chat — used by the canvas chat browser and drag-drop.
+    func loadMessagesForCanvas(chatId: String) -> [ChatMessageRecord] {
+        chatStore.loadMessages(chatId: chatId)
+    }
+
+    /// Expose the orchestrator so the canvas can invoke AI.
+    var canvasOrchestrator: Orchestrator { orchestrator }
+
+    /// Initialize the canvas (load or create default canvas).
+    func setupCanvas() {
+        canvasViewModel.ensureCanvas()
+    }
+
     // Current chat state
     var messages: [ChatMessage] = []
     var isStreaming = false

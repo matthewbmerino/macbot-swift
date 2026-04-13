@@ -197,6 +197,62 @@ final class DatabaseManager: Sendable {
             try db.create(index: "idx_episodes_startedAt", on: "episodes", columns: ["startedAt"])
         }
 
+        // Canvas workspace — infinite canvas for visual note-taking and knowledge mapping
+        migrator.registerMigration("v9_canvas") { db in
+            try db.create(table: "canvases") { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull().defaults(to: "Untitled Canvas")
+                t.column("viewportOffsetX", .double).defaults(to: 0)
+                t.column("viewportOffsetY", .double).defaults(to: 0)
+                t.column("viewportScale", .double).defaults(to: 1.0)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+
+            try db.create(table: "canvas_nodes") { t in
+                t.column("id", .text).primaryKey()
+                t.column("canvasId", .text).notNull().references("canvases", onDelete: .cascade)
+                t.column("positionX", .double).notNull()
+                t.column("positionY", .double).notNull()
+                t.column("width", .double).notNull().defaults(to: 200)
+                t.column("text", .text).notNull().defaults(to: "")
+                t.column("color", .text).notNull().defaults(to: "note")
+                t.column("sourceType", .text).notNull().defaults(to: "manual")
+                t.column("sourceChatId", .text)
+                t.column("sourceChatTitle", .text)
+                t.column("sourceRole", .text)
+                t.column("sourceAgentCategory", .text)
+                t.column("sourceTimestamp", .datetime)
+                t.column("sourceAIAction", .text)
+                t.column("groupId", .text)
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(index: "idx_canvas_nodes_canvasId", on: "canvas_nodes", columns: ["canvasId"])
+
+            try db.create(table: "canvas_edges") { t in
+                t.column("id", .text).primaryKey()
+                t.column("canvasId", .text).notNull().references("canvases", onDelete: .cascade)
+                t.column("fromNodeId", .text).notNull()
+                t.column("toNodeId", .text).notNull()
+                t.column("label", .text)
+            }
+            try db.create(index: "idx_canvas_edges_canvasId", on: "canvas_edges", columns: ["canvasId"])
+
+            try db.create(table: "canvas_groups") { t in
+                t.column("id", .text).primaryKey()
+                t.column("canvasId", .text).notNull().references("canvases", onDelete: .cascade)
+                t.column("title", .text).notNull().defaults(to: "Group")
+                t.column("positionX", .double).notNull()
+                t.column("positionY", .double).notNull()
+                t.column("width", .double).notNull().defaults(to: 400)
+                t.column("height", .double).notNull().defaults(to: 300)
+                t.column("color", .text).defaults(to: "note")
+                t.column("isCollapsed", .boolean).defaults(to: false)
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(index: "idx_canvas_groups_canvasId", on: "canvas_groups", columns: ["canvasId"])
+        }
+
         return migrator
     }
 

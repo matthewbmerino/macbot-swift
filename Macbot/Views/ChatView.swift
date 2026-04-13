@@ -15,7 +15,15 @@ struct ChatView: View {
 
             Divider()
 
-            chatContent
+            if viewModel.contentMode == .chat {
+                chatContent
+            } else {
+                CanvasView(
+                    viewModel: viewModel.canvasViewModel,
+                    loadMessages: { viewModel.loadMessagesForCanvas(chatId: $0) },
+                    orchestrator: viewModel.canvasOrchestrator
+                )
+            }
         }
         .background(MacbotDS.Colors.bg)
         .frame(minWidth: 700, minHeight: 520)
@@ -37,6 +45,32 @@ struct ChatView: View {
                     .foregroundStyle(MacbotDS.Colors.textPri)
 
                 Spacer()
+
+                Button(action: {
+                    withAnimation(Motion.snappy) {
+                        let newMode: ContentMode = viewModel.contentMode == .chat ? .canvas : .chat
+                        if newMode == .canvas {
+                            viewModel.refreshCanvasChats()
+                            viewModel.setupCanvas()
+                        }
+                        viewModel.contentMode = newMode
+                    }
+                }) {
+                    Image(systemName: viewModel.contentMode == .chat
+                          ? "rectangle.on.rectangle.angled"
+                          : "bubble.left.and.text.bubble.right")
+                        .font(.caption)
+                        .foregroundStyle(viewModel.contentMode == .canvas
+                                         ? MacbotDS.Colors.accent
+                                         : MacbotDS.Colors.textSec)
+                        .padding(6)
+                        .background(viewModel.contentMode == .canvas
+                                    ? AnyShapeStyle(MacbotDS.Colors.accent.opacity(0.12))
+                                    : AnyShapeStyle(.fill.tertiary))
+                        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .help(viewModel.contentMode == .chat ? "Canvas" : "Chat")
 
                 Button(action: { viewModel.newChat() }) {
                     Image(systemName: "square.and.pencil")
@@ -156,6 +190,7 @@ struct ChatView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .draggable(ChatDragItem(chatId: chat.id, chatTitle: chat.title))
         .padding(.horizontal, MacbotDS.Space.sm)
         .contextMenu {
             Button("Delete", role: .destructive) { viewModel.deleteChat(chat.id) }
