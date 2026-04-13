@@ -31,6 +31,10 @@ struct CanvasNodeRecord: Codable, FetchableRecord, PersistableRecord, Identifiab
     var sourceTimestamp: Date?
     var sourceAIAction: String?
     var groupId: String?
+    var sceneDataJSON: String?
+    var displayMode: String
+    var viewportHeight: Double?
+    var imagesJSON: String?
     var createdAt: Date
 
     static let databaseTableName = "canvas_nodes"
@@ -259,6 +263,21 @@ final class CanvasStore {
             sourceTimestamp = origin.timestamp
         }
 
+        // Serialize sceneData as JSON
+        var sceneJSON: String?
+        if let scene = node.sceneData, let data = try? JSONEncoder().encode(scene) {
+            sceneJSON = String(data: data, encoding: .utf8)
+        }
+
+        // Serialize images as JSON array of base64 strings
+        var imagesJSON: String?
+        if let images = node.images, !images.isEmpty {
+            let b64 = images.map { $0.base64EncodedString() }
+            if let data = try? JSONEncoder().encode(b64) {
+                imagesJSON = String(data: data, encoding: .utf8)
+            }
+        }
+
         return CanvasNodeRecord(
             id: node.id.uuidString,
             canvasId: canvasId,
@@ -275,6 +294,10 @@ final class CanvasStore {
             sourceTimestamp: sourceTimestamp,
             sourceAIAction: sourceAIAction,
             groupId: node.groupId?.uuidString,
+            sceneDataJSON: sceneJSON,
+            displayMode: node.displayMode.rawValue,
+            viewportHeight: node.viewportHeight.map { Double($0) },
+            imagesJSON: imagesJSON,
             createdAt: Date()
         )
     }
@@ -302,15 +325,34 @@ final class CanvasStore {
             source = .manual
         }
 
-        return CanvasNode(
+        // Deserialize sceneData
+        var sceneData: SceneDescription?
+        if let json = r.sceneDataJSON, let data = json.data(using: .utf8) {
+            sceneData = try? JSONDecoder().decode(SceneDescription.self, from: data)
+        }
+
+        // Deserialize images
+        var images: [Data]?
+        if let json = r.imagesJSON, let data = json.data(using: .utf8),
+           let b64Array = try? JSONDecoder().decode([String].self, from: data) {
+            let decoded = b64Array.compactMap { Data(base64Encoded: $0) }
+            if !decoded.isEmpty { images = decoded }
+        }
+
+        var node = CanvasNode(
             id: id,
             position: CGPoint(x: r.positionX, y: r.positionY),
             text: r.text,
             width: r.width,
             color: CanvasNode.NodeColor(rawValue: r.color) ?? .note,
             source: source,
-            groupId: r.groupId.flatMap { UUID(uuidString: $0) }
+            groupId: r.groupId.flatMap { UUID(uuidString: $0) },
+            images: images,
+            sceneData: sceneData
         )
+        node.displayMode = CanvasNode.DisplayMode(rawValue: r.displayMode) ?? .card
+        node.viewportHeight = r.viewportHeight.map { CGFloat($0) }
+        return node
     }
 
     private static func fromEdgeRecord(_ r: CanvasEdgeRecord) -> CanvasEdge? {

@@ -263,6 +263,16 @@ final class DatabaseManager: Sendable {
             }
         }
 
+        // Persist sceneData, images, displayMode, viewportHeight on canvas nodes
+        migrator.registerMigration("v11_canvas_scene_images") { db in
+            try db.alter(table: "canvas_nodes") { t in
+                t.add(column: "sceneDataJSON", .text)
+                t.add(column: "displayMode", .text).defaults(to: "card")
+                t.add(column: "viewportHeight", .double)
+                t.add(column: "imagesJSON", .text)    // JSON array of base64 strings
+            }
+        }
+
         return migrator
     }
 
