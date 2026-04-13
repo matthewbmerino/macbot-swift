@@ -7,7 +7,7 @@ struct ChatView: View {
     @FocusState private var inputFocused: Bool
     @State private var dragOver = false
     @State private var livePulse = false
-    @State private var sidebarCollapsed = false
+    @State private var sidebarCollapsed = true
 
     var body: some View {
         HStack(spacing: 0) {
@@ -31,19 +31,43 @@ struct ChatView: View {
         }
         .overlay(alignment: .topLeading) {
             if sidebarCollapsed {
-                Button(action: {
-                    withAnimation(Motion.snappy) { sidebarCollapsed = false }
-                }) {
-                    Image(systemName: "sidebar.left")
-                        .font(.caption)
-                        .foregroundStyle(MacbotDS.Colors.textSec)
-                        .padding(8)
-                        .background(MacbotDS.Mat.chrome)
-                        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+                HStack(spacing: MacbotDS.Space.xs) {
+                    Button(action: {
+                        withAnimation(Motion.snappy) { sidebarCollapsed = false }
+                    }) {
+                        Image(systemName: "sidebar.left")
+                            .font(.caption)
+                            .foregroundStyle(MacbotDS.Colors.textSec)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Show sidebar")
+
+                    Button(action: {
+                        withAnimation(Motion.snappy) {
+                            let newMode: ContentMode = viewModel.contentMode == .chat ? .canvas : .chat
+                            if newMode == .canvas {
+                                viewModel.refreshCanvasChats()
+                                viewModel.setupCanvas()
+                            }
+                            viewModel.contentMode = newMode
+                        }
+                    }) {
+                        Image(systemName: viewModel.contentMode == .chat
+                              ? "rectangle.on.rectangle.angled"
+                              : "bubble.left.and.text.bubble.right")
+                            .font(.caption)
+                            .foregroundStyle(viewModel.contentMode == .canvas
+                                             ? MacbotDS.Colors.accent
+                                             : MacbotDS.Colors.textSec)
+                    }
+                    .buttonStyle(.plain)
+                    .help(viewModel.contentMode == .chat ? "Canvas" : "Chat")
                 }
-                .buttonStyle(.plain)
-                .help("Show sidebar")
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(MacbotDS.Mat.chrome)
+                .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
                 .padding(MacbotDS.Space.sm)
                 .transition(.opacity)
             }
@@ -68,14 +92,6 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Collapse sidebar")
-
-                Image(systemName: "cube.transparent")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-
-                Text("macbot")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(MacbotDS.Colors.textPri)
 
                 Spacer()
 
