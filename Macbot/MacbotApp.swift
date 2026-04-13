@@ -71,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
+        setAppIcon()
         showMainWindow()
 
         // Start ambient context loop — gives the assistant continuous awareness
@@ -81,6 +82,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { showMainWindow() }
         return true
+    }
+
+    private func setAppIcon() {
+        // Set the dock icon from the bundled .icns, or fall back to the Assets
+        // directory for unbundled debug runs.
+        let candidates = [
+            Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+            Bundle.main.resourceURL?
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Assets/AppIcon.icns")
+        ]
+        for case let url? in candidates {
+            if let icon = NSImage(contentsOf: url) {
+                NSApplication.shared.applicationIconImage = icon
+                return
+            }
+        }
     }
 
     private func showMainWindow() {

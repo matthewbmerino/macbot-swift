@@ -24,6 +24,9 @@ cp .build/release/Macbot "$MACOS/Macbot"
 # Copy Info.plist
 cp Macbot/Info.plist "$CONTENTS/Info.plist"
 
+# Copy app icon
+cp Assets/AppIcon.icns "$RESOURCES/AppIcon.icns"
+
 # Copy resources (Metal shaders, Soul.md, etc.)
 if [ -d ".build/release/Macbot_Macbot.bundle" ]; then
     cp -R .build/release/Macbot_Macbot.bundle "$RESOURCES/"
