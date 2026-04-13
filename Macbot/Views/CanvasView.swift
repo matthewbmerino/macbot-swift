@@ -811,8 +811,22 @@ struct CanvasView: View {
 
     // MARK: - Nodes
 
+    /// Only nodes whose canvas position projects into the visible viewport
+    /// (with a generous margin) are rendered. Prevents SwiftUI from diffing
+    /// and laying out hundreds of off-screen nodes during pan/zoom.
+    private var visibleNodes: [CanvasNode] {
+        let margin: CGFloat = 400 // render slightly outside viewport for smooth scrolling
+        let vw = viewModel.viewSize.width
+        let vh = viewModel.viewSize.height
+        return viewModel.nodes.filter { node in
+            let vp = viewModel.canvasToView(node.position)
+            return vp.x > -margin && vp.x < vw + margin
+                && vp.y > -margin && vp.y < vh + margin
+        }
+    }
+
     private var nodesLayer: some View {
-        ForEach(viewModel.nodes) { node in
+        ForEach(visibleNodes) { node in
             CanvasNodeView(
                 node: node,
                 isSelected: viewModel.selectedIds.contains(node.id),
