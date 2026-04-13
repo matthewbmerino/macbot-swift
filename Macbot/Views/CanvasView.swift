@@ -42,15 +42,18 @@ struct CanvasView: View {
             .clipped()
             .background(MacbotDS.Colors.bg)
             .onKeyPress(.delete) {
+                guard viewModel.editingNodeId == nil else { return .ignored }
                 withAnimation(Motion.snappy) { viewModel.deleteSelected() }
                 return .handled
             }
             // Spacebar hold for pan mode
             .onKeyPress(.space, phases: .down) { _ in
+                guard viewModel.editingNodeId == nil && !viewModel.showCanvasChat else { return .ignored }
                 viewModel.isSpacebarDown = true
                 return .handled
             }
             .onKeyPress(.space, phases: .up) { _ in
+                guard viewModel.isSpacebarDown else { return .ignored }
                 viewModel.isSpacebarDown = false
                 return .handled
             }
@@ -69,6 +72,7 @@ struct CanvasView: View {
             }
             // Backspace also deletes
             .onKeyPress(.init("\u{08}")) {
+                guard viewModel.editingNodeId == nil else { return .ignored }
                 withAnimation(Motion.snappy) { viewModel.deleteSelected() }
                 return .handled
             }
