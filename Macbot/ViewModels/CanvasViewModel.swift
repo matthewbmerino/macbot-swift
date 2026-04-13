@@ -40,6 +40,17 @@ final class CanvasViewModel {
     var edgeModeActive = false
     var showMinimap = false
 
+    /// The 3D node currently "entered" for interactive camera control.
+    var entered3DNodeId: UUID?
+
+    func enter3DNode(id: UUID) {
+        entered3DNodeId = id
+    }
+
+    func exit3DNode() {
+        entered3DNodeId = nil
+    }
+
     // MARK: - Chat browser
 
     var showChatBrowser = false
@@ -533,6 +544,53 @@ final class CanvasViewModel {
             nodes[i].groupId = nil
         }
         groups.removeAll { $0.id == id }
+        scheduleSave()
+    }
+
+    // MARK: - 3D Viewport Detach / Reattach
+
+    /// Pull the 3D viewport out of a card node into a free-floating viewport node.
+    func detach3DViewport(nodeId: UUID) {
+        guard let idx = nodes.firstIndex(where: { $0.id == nodeId }),
+              let sceneData = nodes[idx].sceneData else { return }
+        pushUndo()
+
+        let source = nodes[idx]
+        // Clear scene from card
+        nodes[idx].sceneData = nil
+
+        // Create free-floating 3D node
+        let viewportNode = CanvasNode(
+            position: CGPoint(x: source.position.x + 340, y: source.position.y),
+            text: "",
+            width: 300,
+            color: .ai,
+            source: source.source,
+            sceneData: sceneData
+        )
+        // Set display mode and height after init
+        var mutableNode = viewportNode
+        mutableNode.displayMode = .viewport3D
+        mutableNode.viewportHeight = 300
+        nodes.append(mutableNode)
+
+        edges.append(CanvasEdge(fromId: nodeId, toId: mutableNode.id, label: "3D", style: .dashed, color: .neutral))
+        selectedIds = [mutableNode.id]
+        scheduleSave()
+    }
+
+    /// Reattach a free-floating 3D viewport back into a card node.
+    func reattachToCard(nodeId: UUID) {
+        guard let idx = nodes.firstIndex(where: { $0.id == nodeId }),
+              nodes[idx].displayMode == .viewport3D else { return }
+        pushUndo()
+        nodes[idx].displayMode = .card
+        scheduleSave()
+    }
+
+    func resizeViewport(id: UUID, height: CGFloat) {
+        guard let idx = nodes.firstIndex(where: { $0.id == id }) else { return }
+        nodes[idx].viewportHeight = max(150, min(height, 600))
         scheduleSave()
     }
 

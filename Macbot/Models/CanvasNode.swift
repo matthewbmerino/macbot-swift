@@ -36,6 +36,13 @@ struct CanvasNode: Identifiable, Equatable {
     var groupId: UUID?
     var images: [Data]?
     var sceneData: SceneDescription?
+    var displayMode: DisplayMode = .card
+    var viewportHeight: CGFloat?   // explicit height for viewport3D mode
+
+    enum DisplayMode: String, Codable, Equatable {
+        case card       // full card chrome: header, text, 3D, footer
+        case viewport3D // free-floating: just the 3D viewport + thin toolbar
+    }
 
     init(
         id: UUID = UUID(),

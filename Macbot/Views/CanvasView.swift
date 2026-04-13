@@ -137,9 +137,11 @@ struct CanvasView: View {
                 default: return .ignored
                 }
             }
-            // Escape cascade: edge mode → AI bar → chat → deselect
+            // Escape cascade: 3D → edge mode → AI bar → chat → deselect
             .onKeyPress(.escape) {
-                if viewModel.edgeModeActive {
+                if viewModel.entered3DNodeId != nil {
+                    viewModel.exit3DNode()
+                } else if viewModel.edgeModeActive {
                     viewModel.edgeModeActive = false
                     viewModel.pendingEdgeFromId = nil
                 } else if showAIBar {
@@ -250,6 +252,7 @@ struct CanvasView: View {
             }
             .onTapGesture(count: 1) { _ in
                 viewModel.pendingEdgeFromId = nil
+                viewModel.exit3DNode()
                 viewModel.clearSelection()
                 showAIBar = false
             }
@@ -584,6 +587,7 @@ struct CanvasView: View {
                 isEditing: viewModel.editingNodeId == node.id,
                 isAIStreaming: viewModel.aiStreamingNodeId == node.id
                     || viewModel.activeCouncilNodeIds.contains(node.id),
+                isEntered3D: viewModel.entered3DNodeId == node.id,
                 scale: viewModel.scale,
                 onTextChange: { viewModel.updateText(id: node.id, text: $0) },
                 onCommitEdit: { viewModel.editingNodeId = nil },
@@ -602,7 +606,12 @@ struct CanvasView: View {
             ))
             .onTapGesture(count: 2) {
                 viewModel.select(node.id)
-                viewModel.editingNodeId = node.id
+                if node.sceneData != nil {
+                    // Enter 3D interaction mode
+                    viewModel.enter3DNode(id: node.id)
+                } else {
+                    viewModel.editingNodeId = node.id
+                }
             }
             // Unified drag gesture — disambiguates click vs drag by distance
             .gesture(nodeDragGesture(node: node))
@@ -627,6 +636,26 @@ struct CanvasView: View {
 
         Button("Chat from here") {
             viewModel.startChat(from: node.id)
+        }
+
+        // 3D viewport actions
+        if node.sceneData != nil {
+            if node.displayMode == .card {
+                Button("Detach 3D Viewport") {
+                    viewModel.detach3DViewport(nodeId: node.id)
+                }
+            } else if node.displayMode == .viewport3D {
+                Button("Re-attach to Card") {
+                    viewModel.reattachToCard(nodeId: node.id)
+                }
+            }
+            Button(viewModel.entered3DNodeId == node.id ? "Exit 3D" : "Interact with 3D") {
+                if viewModel.entered3DNodeId == node.id {
+                    viewModel.exit3DNode()
+                } else {
+                    viewModel.enter3DNode(id: node.id)
+                }
+            }
         }
 
         Divider()
@@ -706,8 +735,9 @@ struct CanvasView: View {
     private func nodeDragGesture(node: CanvasNode) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
+                // Don't move node when inside 3D interaction mode
+                guard viewModel.entered3DNodeId != node.id else { return }
                 let dist = hypot(value.translation.width, value.translation.height)
-                // Only start dragging after 4pt of movement — avoids drag on click
                 if dist > 4 {
                     viewModel.draggingNodeId = node.id
                     let newCanvas = viewModel.viewToCanvas(value.location)
@@ -1470,6 +1500,7 @@ struct CanvasNodeView: View {
     let isSelected: Bool
     let isEditing: Bool
     let isAIStreaming: Bool
+    let isEntered3D: Bool
     let scale: CGFloat
     var onTextChange: (String) -> Void
     var onCommitEdit: () -> Void
@@ -1479,6 +1510,71 @@ struct CanvasNodeView: View {
     @FocusState private var textFocused: Bool
 
     var body: some View {
+        if node.displayMode == .viewport3D {
+            viewport3DBody
+        } else {
+            cardBody
+        }
+    }
+
+    // MARK: - Viewport 3D Mode (free-floating)
+
+    private var viewport3DBody: some View {
+        VStack(spacing: 0) {
+            // Thin toolbar strip — drag handle
+            HStack(spacing: MacbotDS.Space.xs) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 9))
+                    .foregroundStyle(MacbotDS.Colors.textTer)
+                Spacer()
+                if isEntered3D {
+                    Text("Orbit · Esc to exit")
+                        .font(.system(size: 9))
+                        .foregroundStyle(MacbotDS.Colors.accent.opacity(0.7))
+                } else {
+                    Text("Double-click to interact")
+                        .font(.system(size: 9))
+                        .foregroundStyle(MacbotDS.Colors.textTer)
+                }
+                Spacer()
+                Button(action: onStartEdge) {
+                    Image(systemName: "point.forward.to.point.capsulepath.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(MacbotDS.Colors.textTer)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, MacbotDS.Space.sm)
+            .padding(.vertical, 4)
+            .background(MacbotDS.Colors.bg.opacity(0.6))
+
+            // 3D viewport
+            if let sceneData = node.sceneData {
+                SceneKitNodeView(sceneDescription: sceneData, isInteractive: isEntered3D)
+                    .frame(height: node.viewportHeight ?? 250)
+            }
+        }
+        .frame(width: node.width)
+        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
+                .stroke(
+                    isEntered3D ? MacbotDS.Colors.accent :
+                        isSelected ? MacbotDS.Colors.textSec :
+                        MacbotDS.Colors.separator.opacity(0.3),
+                    lineWidth: isEntered3D ? 2 : isSelected ? 1.5 : 0.5
+                )
+        )
+        .shadow(
+            color: isEntered3D ? MacbotDS.Colors.accent.opacity(0.15) : .black.opacity(0.12),
+            radius: isEntered3D ? 16 : 8,
+            y: 4
+        )
+    }
+
+    // MARK: - Card Mode (existing)
+
+    private var cardBody: some View {
         VStack(alignment: .leading, spacing: MacbotDS.Space.xs) {
             nodeHeader
 
@@ -1533,7 +1629,7 @@ struct CanvasNodeView: View {
 
             // 3D Scene (interactive SceneKit viewport)
             if let sceneData = node.sceneData {
-                SceneKitNodeView(sceneDescription: sceneData)
+                SceneKitNodeView(sceneDescription: sceneData, isInteractive: isEntered3D)
                     .frame(height: 200)
                     .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
             }

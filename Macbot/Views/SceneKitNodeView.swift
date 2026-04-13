@@ -5,18 +5,21 @@ import SwiftUI
 /// Supports orbit rotation, zoom, and renders a scene from a JSON description.
 struct SceneKitNodeView: NSViewRepresentable {
     let sceneDescription: SceneDescription
+    var isInteractive: Bool = false
 
     func makeNSView(context: Context) -> SCNView {
         let scnView = SCNView()
         scnView.scene = buildScene(from: sceneDescription)
-        scnView.allowsCameraControl = true
+        scnView.allowsCameraControl = isInteractive
         scnView.autoenablesDefaultLighting = false
         scnView.backgroundColor = .clear
         scnView.antialiasingMode = .multisampling4X
         return scnView
     }
 
-    func updateNSView(_ nsView: SCNView, context: Context) {}
+    func updateNSView(_ nsView: SCNView, context: Context) {
+        nsView.allowsCameraControl = isInteractive
+    }
 
     private func buildScene(from desc: SceneDescription) -> SCNScene {
         let scene = SCNScene()
