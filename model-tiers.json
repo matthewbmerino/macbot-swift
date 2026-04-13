@@ -1,0 +1,86 @@
+[
+  {
+    "name": "ultra",
+    "minMemoryGB": 64,
+    "general": "gemma4:27b",
+    "coder": "gemma4:27b",
+    "reasoner": "gemma4:27b",
+    "vision": "gemma4:27b",
+    "router": "qwen3.5:0.8b",
+    "embedding": "qwen3-embedding:0.6b",
+    "contextSize": 32768,
+    "description": "Full-size models with massive context. Your Mac has serious power."
+  },
+  {
+    "name": "max",
+    "minMemoryGB": 48,
+    "general": "qwen3.5:27b",
+    "coder": "qwen3.5:27b",
+    "reasoner": "qwen3.5:27b",
+    "vision": "gemma4:12b",
+    "router": "qwen3.5:0.8b",
+    "embedding": "qwen3-embedding:0.6b",
+    "contextSize": 32768,
+    "description": "27B model with dedicated vision. Excellent quality with headroom to spare."
+  },
+  {
+    "name": "pro-xl",
+    "minMemoryGB": 32,
+    "general": "qwen3.5:27b",
+    "coder": "qwen3.5:27b",
+    "reasoner": "qwen3.5:27b",
+    "vision": "gemma4:e4b",
+    "router": "qwen3.5:0.8b",
+    "embedding": "qwen3-embedding:0.6b",
+    "contextSize": 16384,
+    "description": "27B model — major quality jump over 9B. Tight but comfortable."
+  },
+  {
+    "name": "pro",
+    "minMemoryGB": 24,
+    "general": "qwen3.5:14b",
+    "coder": "qwen3.5:14b",
+    "reasoner": "qwen3.5:14b",
+    "vision": "gemma4:e4b",
+    "router": "qwen3.5:0.8b",
+    "embedding": "qwen3-embedding:0.6b",
+    "contextSize": 16384,
+    "description": "14B model — noticeably smarter than 9B with room for vision."
+  },
+  {
+    "name": "standard",
+    "minMemoryGB": 18,
+    "general": "qwen3.5:9b",
+    "coder": "qwen3.5:9b",
+    "reasoner": "qwen3.5:9b",
+    "vision": "gemma4:e4b",
+    "router": "qwen3.5:0.8b",
+    "embedding": "qwen3-embedding:0.6b",
+    "contextSize": 16384,
+    "description": "Best tool-calling model at 9B. Balanced for 18GB Macs."
+  },
+  {
+    "name": "compact",
+    "minMemoryGB": 16,
+    "general": "qwen3.5:7b",
+    "coder": "qwen3.5:7b",
+    "reasoner": "qwen3.5:7b",
+    "vision": "gemma4:e4b",
+    "router": "qwen3.5:0.8b",
+    "embedding": "qwen3-embedding:0.6b",
+    "contextSize": 8192,
+    "description": "7B model with reduced context. Good performance on 16GB."
+  },
+  {
+    "name": "lite",
+    "minMemoryGB": 8,
+    "general": "qwen3.5:4b",
+    "coder": "qwen3.5:4b",
+    "reasoner": "qwen3.5:4b",
+    "vision": "",
+    "router": "qwen3.5:0.8b",
+    "embedding": "qwen3-embedding:0.6b",
+    "contextSize": 4096,
+    "description": "Lightweight 4B model. Limited but functional on 8GB."
+  }
+]

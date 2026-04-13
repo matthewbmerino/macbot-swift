@@ -103,12 +103,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @Observable
 final class AppState {
-    let orchestrator = Orchestrator(soulPrompt: SoulLoader.load())
+    let orchestrator: Orchestrator = {
+        let config = HardwareScanner.recommendedConfig()
+        return Orchestrator(modelConfig: config, soulPrompt: SoulLoader.load())
+    }()
     let authService = AuthService()
     var chatViewModel: ChatViewModel?
     var isReady = false
 
     init() {
+        // Refresh the model tier table in the background (every 30 days).
+        // This lets us update model recommendations without shipping a new binary.
+        HardwareScanner.refreshTierTableInBackground()
+
         // Auth is triggered exclusively by LockScreen.onAppear (the main
         // window's gated content). Triggering it here as well caused two
         // Touch ID prompts on launch — one tied to the menu bar's AppState
