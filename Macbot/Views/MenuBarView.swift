@@ -123,8 +123,7 @@ private struct FeatureButtonsGrid: View {
         HStack(spacing: MacbotDS.Space.sm) {
             featureButton(
                 icon: "film",
-                label: "Director",
-                color: .cyan
+                label: "Director"
             ) {
                 // Small delay lets the popover dismiss before the
                 // Director window appears, avoiding focus conflicts.
@@ -138,8 +137,7 @@ private struct FeatureButtonsGrid: View {
 
             featureButton(
                 icon: "rectangle.dashed",
-                label: "Overlay",
-                color: .purple
+                label: "Overlay"
             ) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     OverlayController.shared.show()
@@ -148,16 +146,14 @@ private struct FeatureButtonsGrid: View {
 
             featureButton(
                 icon: "sparkle",
-                label: "Companion",
-                color: .yellow
+                label: "Companion"
             ) {
                 CompanionController.shared.toggle()
             }
 
             featureButton(
                 icon: "cursorarrow.motionlines",
-                label: "Ghost",
-                color: .orange
+                label: "Ghost"
             ) {
                 // Ghost needs a task typed in chat, so open the main
                 // window with /ghost pre-filled.
@@ -175,24 +171,22 @@ private struct FeatureButtonsGrid: View {
     private func featureButton(
         icon: String,
         label: String,
-        color: Color,
         action: @escaping () -> Void
     ) -> some View {
-        FeatureButton(icon: icon, label: label, color: color, action: action)
+        FeatureButton(icon: icon, label: label, action: action)
     }
 }
 
 private struct FeatureButton: View {
     let icon: String
     let label: String
-    let color: Color
     let action: () -> Void
     @State private var isHovering = false
     @State private var isPressed = false
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: MacbotDS.Space.sm) {
+            VStack(spacing: 6) {
                 ZStack {
                     RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
                         .fill(.fill.tertiary)
@@ -200,13 +194,14 @@ private struct FeatureButton: View {
 
                     Image(systemName: icon)
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(color)
+                        .foregroundStyle(.primary.opacity(isHovering ? 0.85 : 0.5))
                         .symbolRenderingMode(.hierarchical)
                 }
 
                 Text(label)
-                    .font(MacbotDS.Typo.detail)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 8, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.tertiary)
+                    .tracking(0.3)
             }
             .padding(.vertical, MacbotDS.Space.sm)
             .frame(maxWidth: .infinity)
@@ -261,56 +256,58 @@ private struct LiveIndicator: View {
 private struct SystemGaugesView: View {
     private var monitor: SystemMonitor { SystemMonitor.shared }
 
+    /// Single accent — white at low opacity. Tints warmer only when
+    /// a value enters the danger zone. No rainbow of gauge colors.
+    private static let arcColor = Color.primary
+
     var body: some View {
-        HStack(spacing: MacbotDS.Space.md) {
-            circularGauge(label: "CPU", value: monitor.cpuUsage, color: MacbotDS.Colors.info)
-            circularGauge(
-                label: "MEM", value: monitor.memoryUsage, color: memoryColor,
-                subLabel: "\(String(format: "%.1f", monitor.memoryUsedGB)) / \(Int(monitor.memoryTotalGB))GB"
-            )
-            circularGauge(label: "GPU", value: monitor.gpuUsage, color: .purple)
+        HStack(spacing: MacbotDS.Space.lg) {
+            gauge(label: "CPU", value: monitor.cpuUsage)
+            gauge(label: "MEM", value: monitor.memoryUsage,
+                  sub: "\(String(format: "%.1f", monitor.memoryUsedGB))/\(Int(monitor.memoryTotalGB))")
+            gauge(label: "GPU", value: monitor.gpuUsage)
         }
     }
 
-    private func circularGauge(
-        label: String, value: Double, color: Color, subLabel: String? = nil
-    ) -> some View {
-        VStack(spacing: MacbotDS.Space.xs) {
-            ZStack {
-                Circle()
-                    .stroke(color.opacity(0.15), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+    private func gauge(label: String, value: Double, sub: String? = nil) -> some View {
+        let clamped = min(max(value, 0), 1)
+        let hot = clamped > 0.85
 
+        return VStack(spacing: 3) {
+            ZStack {
+                // Track
                 Circle()
-                    .trim(from: 0, to: CGFloat(min(value, 1.0)))
+                    .stroke(Color.primary.opacity(0.08),
+                            style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+
+                // Arc — single color, opacity encodes intensity
+                Circle()
+                    .trim(from: 0, to: clamped)
                     .stroke(
-                        color,
-                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                        hot ? Color.orange : Self.arcColor.opacity(0.35 + clamped * 0.5),
+                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
 
-                Text("\(Int(value * 100))")
-                    .font(.caption.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(.primary)
+                // Value
+                Text("\(Int(clamped * 100))")
+                    .font(.system(size: 11, weight: .medium, design: .rounded).monospacedDigit())
+                    .foregroundStyle(hot ? .orange : .primary.opacity(0.7))
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 40, height: 40)
 
             Text(label)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 8, weight: .semibold, design: .rounded))
+                .foregroundStyle(.tertiary)
+                .tracking(0.5)
 
-            if let subLabel {
-                Text(subLabel)
-                    .font(MacbotDS.Typo.mono)
-                    .foregroundStyle(.tertiary)
+            if let sub {
+                Text(sub)
+                    .font(.system(size: 7, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.quaternary)
             }
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private var memoryColor: Color {
-        if monitor.memoryUsage > 0.85 { return MacbotDS.Colors.danger }
-        if monitor.memoryUsage > 0.7 { return MacbotDS.Colors.warning }
-        return MacbotDS.Colors.success
     }
 }
 

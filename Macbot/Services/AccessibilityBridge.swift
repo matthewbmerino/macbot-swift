@@ -95,9 +95,9 @@ enum AccessibilityBridge {
                            mouseCursorPosition: point, mouseButton: .left)
         let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
                          mouseCursorPosition: point, mouseButton: .left)
-        down?.post(tap: .cghidEventTap)
+        down?.post(tap: .cgSessionEventTap)
         usleep(50_000) // 50ms between down/up for reliability
-        up?.post(tap: .cghidEventTap)
+        up?.post(tap: .cgSessionEventTap)
     }
 
     static func performKeyPress(_ key: String, modifiers: CGEventFlags = []) {
@@ -106,8 +106,8 @@ enum AccessibilityBridge {
         let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)
         down?.flags = flags
         up?.flags = flags
-        down?.post(tap: .cghidEventTap)
-        up?.post(tap: .cghidEventTap)
+        down?.post(tap: .cgSessionEventTap)
+        up?.post(tap: .cgSessionEventTap)
     }
 
     static func typeText(_ text: String) {
@@ -116,9 +116,9 @@ enum AccessibilityBridge {
             guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else { continue }
             let chars = Array(str.utf16)
             event.keyboardSetUnicodeString(stringLength: chars.count, unicodeString: chars)
-            event.post(tap: .cghidEventTap)
+            event.post(tap: .cgSessionEventTap)
             let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
-            up?.post(tap: .cghidEventTap)
+            up?.post(tap: .cgSessionEventTap)
             usleep(20_000) // 20ms per character
         }
     }

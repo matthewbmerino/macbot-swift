@@ -11,16 +11,16 @@ struct MessageBubble: View {
     @State private var expandedImage: Data?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: MacbotDS.Space.xs) {
             // Header
-            HStack(spacing: 6) {
+            HStack(spacing: MacbotDS.Space.sm) {
                 Image(systemName: message.role == .user ? "person.circle.fill" : "cube.transparent")
-                    .font(.caption)
-                    .foregroundStyle(message.role == .user ? .primary : Color.accentColor)
+                    .font(MacbotDS.Typo.caption)
+                    .foregroundStyle(message.role == .user ? .primary : MacbotDS.Colors.accent)
 
                 Text(message.role == .user ? "You" : "macbot")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(message.role == .user ? .secondary : Color.accentColor)
+                    .foregroundStyle(message.role == .user ? .secondary : MacbotDS.Colors.accent)
 
                 if let agent = message.agentCategory {
                     AgentBadge(category: agent)
@@ -30,7 +30,7 @@ struct MessageBubble: View {
 
                 // Action buttons (visible on hover)
                 if isHovering && !message.content.isEmpty {
-                    HStack(spacing: 8) {
+                    HStack(spacing: MacbotDS.Space.sm) {
                         // Edit button (user messages only)
                         if message.role == .user, let onEdit {
                             Button(action: onEdit) {
@@ -67,29 +67,29 @@ struct MessageBubble: View {
                         // Plain text during streaming — Markdown parsing
                         // is too expensive at 10 updates/sec.
                         Text(message.content)
-                            .font(.body)
+                            .font(MacbotDS.Typo.body)
                             .textSelection(.enabled)
                     } else {
                         // Full Markdown rendering after streaming completes.
                         Markdown(message.content)
                             .markdownTextStyle {
-                                FontSize(14)
+                                FontSize(13)
                             }
                             .markdownBlockStyle(\.codeBlock) { configuration in
                                 configuration.label
-                                    .padding(12)
+                                    .padding(MacbotDS.Space.md)
                                     .background(.fill.quaternary)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                                        RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
+                                            .stroke(MacbotDS.Colors.separator, lineWidth: 0.5)
                                     )
                             }
                             .textSelection(.enabled)
                     }
                 } else {
                     Text(message.content)
-                        .font(.body)
+                        .font(MacbotDS.Typo.body)
                         .textSelection(.enabled)
                 }
             }
@@ -107,16 +107,16 @@ struct MessageBubble: View {
                     .padding(.top, 2)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
+        .padding(.horizontal, MacbotDS.Space.lg)
+        .padding(.vertical, MacbotDS.Space.sm)
         .background(
             message.role == .user
                 ? AnyShapeStyle(.fill.tertiary)
                 : AnyShapeStyle(.clear)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.md, style: .continuous))
         .onHover { isHovering = $0 }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isHovering)
+        .animation(Motion.snappy, value: isHovering)
         .sheet(item: $expandedImage) { data in
             ImageViewer(imageData: data)
         }
@@ -125,7 +125,7 @@ struct MessageBubble: View {
     // MARK: - Image Grid
 
     private func imageGrid(_ images: [Data]) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: MacbotDS.Space.sm) {
             ForEach(Array(images.enumerated()), id: \.offset) { _, data in
                 if let nsImage = NSImage(data: data) {
                     ImageThumbnail(nsImage: nsImage) {
@@ -134,7 +134,7 @@ struct MessageBubble: View {
                 }
             }
         }
-        .padding(.top, 4)
+        .padding(.top, MacbotDS.Space.xs)
     }
 
     private func copyToClipboard() {
@@ -156,10 +156,10 @@ struct ImageThumbnail: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: 350, maxHeight: 250)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(isHovering ? 1 : 0), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
+                        .stroke(MacbotDS.Colors.separator.opacity(isHovering ? 1 : 0), lineWidth: 1)
                 )
                 .shadow(color: .black.opacity(isHovering ? 0.15 : 0), radius: 8)
 
@@ -167,17 +167,17 @@ struct ImageThumbnail: View {
             if isHovering {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
                     .font(.caption2)
-                    .padding(6)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .padding(8)
+                    .padding(MacbotDS.Space.sm)
+                    .background(MacbotDS.Mat.float)
+                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                    .padding(MacbotDS.Space.sm)
                     .transition(.opacity)
             }
         }
         .onHover { isHovering = $0 }
         .onTapGesture { onTap() }
         .cursor(.pointingHand)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isHovering)
+        .animation(Motion.snappy, value: isHovering)
     }
 }
 
@@ -201,7 +201,7 @@ struct ImageViewer: View {
 
             VStack(spacing: 0) {
                 // Toolbar
-                HStack(spacing: 12) {
+                HStack(spacing: MacbotDS.Space.md) {
                     Spacer()
 
                     toolbarButton(
@@ -228,9 +228,9 @@ struct ImageViewer: View {
                         dismiss()
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+                .padding(.horizontal, MacbotDS.Space.lg)
+                .padding(.top, MacbotDS.Space.md)
+                .padding(.bottom, MacbotDS.Space.md)
 
                 // Image
                 if let nsImage {
@@ -238,7 +238,7 @@ struct ImageViewer: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(20)
+                        .padding(MacbotDS.Space.lg)
                 } else {
                     Text("Unable to display image")
                         .foregroundStyle(.secondary)
@@ -257,7 +257,7 @@ struct ImageViewer: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: MacbotDS.Space.sm) {
                 Image(systemName: icon)
                     .font(.caption.weight(.medium))
                 if isHovering.wrappedValue {
@@ -270,14 +270,14 @@ struct ImageViewer: View {
                 }
             }
             .foregroundStyle(isHovering.wrappedValue ? .white : .white.opacity(0.6))
-            .padding(.horizontal, isHovering.wrappedValue ? 12 : 8)
-            .padding(.vertical, 8)
+            .padding(.horizontal, isHovering.wrappedValue ? MacbotDS.Space.md : MacbotDS.Space.sm)
+            .padding(.vertical, MacbotDS.Space.sm)
             .background(.fill.secondary)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { isHovering.wrappedValue = $0 }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isHovering.wrappedValue)
+        .animation(Motion.snappy, value: isHovering.wrappedValue)
     }
 
     private func copyImage() {

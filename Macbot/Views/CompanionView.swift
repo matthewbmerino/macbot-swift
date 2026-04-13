@@ -34,7 +34,7 @@ struct CompanionView: View {
                         insertion: .opacity.combined(with: .offset(y: 8)).combined(with: .scale(scale: 0.95)),
                         removal: .opacity
                     ))
-                    .padding(.bottom, 8)
+                    .padding(.bottom, MacbotDS.Space.sm)
             }
 
             // The orb
@@ -54,18 +54,18 @@ struct CompanionView: View {
                         insertion: .opacity.combined(with: .offset(y: -12)),
                         removal: .opacity.combined(with: .offset(y: -6))
                     ))
-                    .padding(.top, 10)
+                    .padding(.top, MacbotDS.Space.sm)
             }
         }
         .frame(
             width: viewModel.isChatOpen ? 320 : 140,
             height: viewModel.isChatOpen ? 440 : 140
         )
-        .animation(.spring(response: 0.4, dampingFraction: 0.82), value: viewModel.isChatOpen)
+        .animation(Motion.smooth, value: viewModel.isChatOpen)
         .onAppear { startAnimations() }
         .onChange(of: viewModel.mood) { _, newMood in animateMood(newMood) }
         .onChange(of: viewModel.suggestion) { _, val in
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
+            withAnimation(Motion.gentle) {
                 showBubble = val != nil
             }
         }
@@ -116,7 +116,7 @@ struct CompanionView: View {
             // Error: ripple ring
             if errorPulse {
                 Circle()
-                    .stroke(Color.red.opacity(0.6), lineWidth: 1.5)
+                    .stroke(MacbotDS.Colors.danger.opacity(0.6), lineWidth: 1.5)
                     .frame(width: orbSize + 16, height: orbSize + 16)
                     .scaleEffect(errorPulse ? 1.4 : 1.0)
                     .opacity(errorPulse ? 0 : 1)
@@ -127,23 +127,23 @@ struct CompanionView: View {
     // MARK: - Suggestion Card
 
     private func suggestionCard(_ text: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: MacbotDS.Space.sm) {
             Circle()
                 .fill(moodPrimary.opacity(0.6))
                 .frame(width: 6, height: 6)
 
             Text(text)
-                .font(.system(size: 12, weight: .regular, design: .rounded))
-                .foregroundStyle(.primary.opacity(0.85))
+                .font(MacbotDS.Typo.caption)
+                .foregroundStyle(MacbotDS.Colors.textPri.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, MacbotDS.Space.md)
+        .padding(.vertical, MacbotDS.Space.sm)
+        .background(MacbotDS.Mat.float)
+        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.lg, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(.white.opacity(0.08), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: MacbotDS.Radius.lg, style: .continuous)
+                .stroke(MacbotDS.Colors.separator, lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
         .frame(maxWidth: 280)
@@ -158,18 +158,18 @@ struct CompanionView: View {
                 Spacer()
                 Button(action: { viewModel.closeChat() }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 16))
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .help("Close chat")
             }
-            .padding(.bottom, 4)
+            .padding(.bottom, MacbotDS.Space.xs)
 
             // Context strip — minimal, monospaced
             if !viewModel.currentContext.isEmpty {
                 contextStrip
-                    .padding(.bottom, 10)
+                    .padding(.bottom, MacbotDS.Space.sm)
             }
 
             // Response
@@ -177,18 +177,18 @@ struct CompanionView: View {
                 ScrollView {
                     Markdown(response)
                         .markdownTextStyle {
-                            FontSize(12.5)
+                            FontSize(13)
                             FontFamily(.system(.rounded))
                             ForegroundColor(.primary.opacity(0.8))
                         }
                         .markdownBlockStyle(\.codeBlock) { configuration in
                             configuration.label
-                                .padding(8)
-                                .background(.white.opacity(0.06))
-                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                .padding(MacbotDS.Space.sm)
+                                .background(.fill.quaternary)
+                                .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .stroke(.white.opacity(0.08), lineWidth: 0.5)
+                                    RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
+                                        .stroke(MacbotDS.Colors.separator, lineWidth: 0.5)
                                 )
                         }
                         .textSelection(.enabled)
@@ -196,50 +196,50 @@ struct CompanionView: View {
                         .padding(.horizontal, 2)
                 }
                 .frame(maxHeight: 140)
-                .padding(.bottom, 10)
+                .padding(.bottom, MacbotDS.Space.sm)
             }
 
             // Input
             inputBar
         }
-        .padding(16)
+        .padding(MacbotDS.Space.md)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(MacbotDS.Mat.float)
                 .shadow(color: .black.opacity(0.15), radius: 20, y: 8)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(.white.opacity(0.06), lineWidth: 0.5)
+                .stroke(MacbotDS.Colors.separator, lineWidth: 0.5)
         )
         .onAppear { chatFocused = true }
         .onExitCommand { viewModel.closeChat() }
     }
 
     private var contextStrip: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: MacbotDS.Space.sm) {
             Image(systemName: "eye")
-                .font(.system(size: 8, weight: .semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(moodPrimary.opacity(0.6))
 
             Text(viewModel.currentContext.replacingOccurrences(of: "\n", with: " · "))
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundStyle(.secondary.opacity(0.5))
+                .font(MacbotDS.Typo.mono)
+                .foregroundStyle(MacbotDS.Colors.textSec.opacity(0.5))
                 .lineLimit(2)
                 .truncationMode(.tail)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.white.opacity(0.1).opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, MacbotDS.Space.sm)
+        .padding(.vertical, MacbotDS.Space.sm)
+        .background(.fill.quaternary)
+        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
     }
 
     private var inputBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: MacbotDS.Space.sm) {
             TextField("Ask anything...", text: $viewModel.chatInput)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13, design: .rounded))
+                .font(MacbotDS.Typo.body)
                 .focused($chatFocused)
                 .onSubmit { viewModel.sendChat() }
                 .disabled(viewModel.isResponding)
@@ -252,10 +252,10 @@ struct CompanionView: View {
             } else {
                 Button(action: { viewModel.sendChat() }) {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 22, weight: .medium))
+                        .font(.title2)
                         .foregroundStyle(
                             viewModel.chatInput.trimmingCharacters(in: .whitespaces).isEmpty
-                            ? .white.opacity(0.1) : moodPrimary
+                            ? MacbotDS.Colors.textTer.opacity(0.3) : moodPrimary
                         )
                         .contentTransition(.symbolEffect(.replace))
                 }
@@ -263,15 +263,15 @@ struct CompanionView: View {
                 .disabled(viewModel.chatInput.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, MacbotDS.Space.md)
+        .padding(.vertical, MacbotDS.Space.sm)
         .background(
             Capsule()
-                .fill(.white.opacity(0.1).opacity(0.4))
+                .fill(.fill.quaternary)
         )
         .overlay(
             Capsule()
-                .stroke(.white.opacity(0.1).opacity(0.3), lineWidth: 0.5)
+                .stroke(MacbotDS.Colors.separator, lineWidth: 0.5)
         )
     }
 
@@ -340,7 +340,7 @@ struct CompanionView: View {
                 breatheScale = 1.12
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                withAnimation(.spring(response: 0.5)) { breatheScale = 1.04 }
+                withAnimation(Motion.smooth) { breatheScale = 1.04 }
             }
         }
 

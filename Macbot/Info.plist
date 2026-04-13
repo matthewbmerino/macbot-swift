@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.macbot.app</string>
+    <key>CFBundleName</key>
+    <string>macbot</string>
+    <key>CFBundleDisplayName</key>
+    <string>macbot</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>Macbot</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>15.0</string>
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Matthew Merino. All rights reserved.</string>
+
+    <!-- Privacy usage descriptions — macOS requires these for permission prompts -->
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>macbot uses screen capture to analyze what's on your screen when you use the overlay feature. All processing happens locally.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>macbot uses the microphone for voice input. Audio is processed on-device and never sent to any server.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>macbot can use the camera for visual input. All processing happens locally on this Mac.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>macbot uses accessibility to read window titles for context awareness and to control apps with the ghost cursor feature.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>macbot can read your calendar to help with scheduling. Calendar data stays on this device.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>macbot can access contacts for communication features. Contact data stays on this device.</string>
+</dict>
+</plist>

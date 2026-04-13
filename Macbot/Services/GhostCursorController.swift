@@ -22,6 +22,15 @@ final class GhostCursorController {
         showCursorWindow()
         showNarrationPanel()
 
+        // Resign macbot's own window so keyboard focus goes to the target app
+        NSApp.hide(nil)
+        // Brief delay for macOS to complete the hide
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // Show the overlay windows back (they float above everything)
+            self.cursorWindow?.orderFrontRegardless()
+            self.narrationWindow?.orderFrontRegardless()
+        }
+
         Task {
             await viewModel.execute(parsedSteps: steps)
             // Keep narration visible briefly after completion
@@ -98,7 +107,8 @@ final class GhostCursorController {
             win.setFrameOrigin(center)
         }
 
-        win.makeKeyAndOrderFront(nil)
+        // orderFront only — never makeKey, so we don't steal keyboard
+        // focus from the target app the ghost cursor is controlling.
         win.orderFrontRegardless()
         cursorWindow = win
     }
@@ -134,7 +144,9 @@ final class GhostCursorController {
             win.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
-        win.makeKeyAndOrderFront(nil)
+        // orderFront only — never makeKey. If this window becomes key,
+        // it steals keyboard focus and all CGEvent keystrokes land here
+        // instead of in the target app (Safari, Xcode, etc.).
         win.orderFrontRegardless()
         narrationWindow = win
     }

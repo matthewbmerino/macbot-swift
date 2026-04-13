@@ -22,3 +22,5 @@ DerivedData/
 .idea/
 *.swp
 *~
+macbot.app
+*.app

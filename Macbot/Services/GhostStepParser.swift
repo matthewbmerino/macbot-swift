@@ -74,7 +74,7 @@ enum GhostStepParser {
         currentApp = appName
         return GhostStep(
             app: appName,
-            action: .shortcut(keys: ""),
+            action: .openApp,
             description: "Opening \(appName)..."
         )
     }
@@ -169,10 +169,13 @@ enum GhostStepParser {
               let queryRange = Range(match.range(at: 1), in: original) else { return nil }
 
         let query = String(original[queryRange]).trimmingCharacters(in: .whitespaces)
+        // Search is a compound action — returns only the type step here,
+        // but the caller should also insert a Cmd+L first for browsers.
+        // We handle that by using a dedicated .search action.
         return GhostStep(
             app: app,
-            action: .type(text: query),
-            description: "Searching for '\(query)' in \(app)..."
+            action: .search(query: query),
+            description: "Searching for '\(query)'..."
         )
     }
 

@@ -297,33 +297,7 @@ struct ChatView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: MacbotDS.Space.lg) {
-            Spacer()
-
-            ZStack {
-                Circle()
-                    .fill(.fill.tertiary)
-                    .frame(width: 80, height: 80)
-                Image(systemName: "cube.transparent")
-                    .font(.system(size: 40, weight: .ultraLight))
-                    .foregroundStyle(MacbotDS.Colors.textTer)
-                    .symbolRenderingMode(.hierarchical)
-            }
-
-            Text("What can I help with?")
-                .font(MacbotDS.Typo.title)
-                .foregroundStyle(MacbotDS.Colors.textSec)
-
-            Text("All processing happens on this Mac.\nNothing leaves your network.")
-                .font(.subheadline)
-                .foregroundStyle(MacbotDS.Colors.textTer)
-                .multilineTextAlignment(.center)
-
-            Spacer()
-            Color.clear.frame(height: 80)
-        }
-        .frame(maxWidth: .infinity)
-        .padding()
+        SmartGreeting()
     }
 
     // MARK: - Typing Indicator
