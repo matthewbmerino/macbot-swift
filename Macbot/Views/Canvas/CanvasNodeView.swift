@@ -22,7 +22,13 @@ struct CanvasNodeView: View {
     @State private var localText: String = ""
     @State private var isExpanded: Bool = false
     @State private var contentOverflows: Bool = false
+    @State private var executeMode: ExecuteMode = .widget
     @FocusState private var textFocused: Bool
+
+    enum ExecuteMode {
+        case widget   // in-place answer
+        case expand   // knowledge graph
+    }
 
     private let maxCollapsedHeight: CGFloat = 160
 
@@ -94,23 +100,52 @@ struct CanvasNodeView: View {
             nodeHeader
 
             if isEditing {
-                TextEditor(text: $localText)
-                    .font(.callout)
-                    .foregroundStyle(MacbotDS.Colors.textPri)
-                    .scrollContentBackground(.hidden)
-                    .focused($textFocused)
-                    .frame(minHeight: 40, maxHeight: 240)
-                    .onAppear {
-                        localText = node.text
-                        textFocused = true
-                    }
-                    .onChange(of: localText) { _, newValue in
-                        onTextChange(newValue)
-                    }
-                    .onKeyPress(.escape) {
-                        onCommitEdit()
-                        return .handled
-                    }
+                VStack(alignment: .leading, spacing: MacbotDS.Space.xs) {
+                    TextEditor(text: $localText)
+                        .font(.callout)
+                        .foregroundStyle(MacbotDS.Colors.textPri)
+                        .scrollContentBackground(.hidden)
+                        .focused($textFocused)
+                        .frame(minHeight: 40, maxHeight: 200)
+                        .onAppear {
+                            localText = node.text
+                            textFocused = true
+                        }
+                        .onChange(of: localText) { _, newValue in
+                            onTextChange(newValue)
+                        }
+                        .onKeyPress(.escape) {
+                            onCommitEdit()
+                            return .handled
+                        }
+                        .onKeyPress(.return) {
+                            // Return = execute in current mode (unless Cmd held for expand override)
+                            guard !NSEvent.modifierFlags.contains(.shift) else { return .ignored }
+                            if NSEvent.modifierFlags.contains(.command) {
+                                onCommitEdit()
+                                onExecute()
+                            } else {
+                                onCommitEdit()
+                                if executeMode == .widget {
+                                    onWidgetExecute()
+                                } else {
+                                    onExecute()
+                                }
+                            }
+                            return .handled
+                        }
+                        .onKeyPress(.tab) {
+                            // Shift+Tab toggles mode
+                            guard NSEvent.modifierFlags.contains(.shift) else { return .ignored }
+                            withAnimation(Motion.snappy) {
+                                executeMode = executeMode == .widget ? .expand : .widget
+                            }
+                            return .handled
+                        }
+
+                    // Mode indicator pill
+                    executeModeIndicator
+                }
             } else {
                 if node.text.isEmpty {
                     Text("Double-click to edit...")
@@ -369,6 +404,43 @@ struct CanvasNodeView: View {
         }
         .buttonStyle(.plain)
         .help("Connect to another node")
+    }
+
+    // MARK: - Execute Mode Indicator
+
+    private var executeModeIndicator: some View {
+        HStack(spacing: MacbotDS.Space.sm) {
+            // Mode toggle
+            HStack(spacing: 2) {
+                modePill("↩ Answer", mode: .widget)
+                modePill("⚡ Expand", mode: .expand)
+            }
+            .padding(2)
+            .background(.fill.quaternary)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+            Spacer()
+
+            Text("⇧Tab to switch")
+                .font(.system(size: 9))
+                .foregroundStyle(MacbotDS.Colors.textTer.opacity(0.6))
+        }
+    }
+
+    private func modePill(_ label: String, mode: ExecuteMode) -> some View {
+        let isActive = executeMode == mode
+        return Button(action: {
+            withAnimation(Motion.snappy) { executeMode = mode }
+        }) {
+            Text(label)
+                .font(.system(size: 9, weight: isActive ? .semibold : .regular))
+                .foregroundStyle(isActive ? MacbotDS.Colors.textPri : MacbotDS.Colors.textTer)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(isActive ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.clear))
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Widget Footers

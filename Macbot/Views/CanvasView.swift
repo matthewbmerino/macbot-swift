@@ -1566,10 +1566,6 @@ struct CanvasView: View {
 
     private var primaryToolbar: some View {
         HStack(spacing: MacbotDS.Space.sm) {
-            canvasPickerButton
-
-            Divider().frame(height: 18)
-
             // Quick Add — split button with type presets
             quickAddButton
 

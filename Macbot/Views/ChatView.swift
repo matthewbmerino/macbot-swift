@@ -110,16 +110,29 @@ struct ChatView: View {
 
                 Spacer()
 
-                Button(action: { viewModel.newChat() }) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.caption)
-                        .foregroundStyle(MacbotDS.Colors.textSec)
-                        .padding(6)
-                        .background(.fill.tertiary)
-                        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                if viewModel.contentMode == .chat {
+                    Button(action: { viewModel.newChat() }) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.caption)
+                            .foregroundStyle(MacbotDS.Colors.textSec)
+                            .padding(6)
+                            .background(.fill.tertiary)
+                            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .help("New Chat")
+                } else {
+                    Button(action: { viewModel.canvasViewModel.createCanvas() }) {
+                        Image(systemName: "plus")
+                            .font(.caption)
+                            .foregroundStyle(MacbotDS.Colors.textSec)
+                            .padding(6)
+                            .background(.fill.tertiary)
+                            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .help("New Canvas")
                 }
-                .buttonStyle(.plain)
-                .help("New Chat")
             }
             .padding(.horizontal, MacbotDS.Space.md)
             .padding(.top, MacbotDS.Space.md)
@@ -162,11 +175,15 @@ struct ChatView: View {
             .padding(.horizontal, MacbotDS.Space.md)
             .padding(.bottom, MacbotDS.Space.md)
 
-            // Chat list
-            if viewModel.isSearching {
-                searchResultsList
+            // Content list — shows chats or canvases based on mode
+            if viewModel.contentMode == .chat {
+                if viewModel.isSearching {
+                    searchResultsList
+                } else {
+                    chatList
+                }
             } else {
-                chatList
+                canvasList
             }
 
             Spacer(minLength: 0)
@@ -249,6 +266,80 @@ struct ChatView: View {
         if !thisWeek.isEmpty { groups.append(ChatGroup(label: "This Week", chats: thisWeek)) }
         if !older.isEmpty { groups.append(ChatGroup(label: "Older", chats: older)) }
         return groups
+    }
+
+    // MARK: - Canvas List (sidebar)
+
+    @State private var renamingCanvasId: String?
+    @State private var canvasRenameField: String = ""
+
+    private var canvasList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                ForEach(viewModel.canvasViewModel.canvasList) { canvas in
+                    let isSelected = viewModel.canvasViewModel.currentCanvasId == canvas.id
+
+                    HStack(spacing: 0) {
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(isSelected ? MacbotDS.Colors.accent : .clear)
+                            .frame(width: 3)
+                            .padding(.vertical, 4)
+
+                        if renamingCanvasId == canvas.id {
+                            TextField("Canvas name", text: $canvasRenameField)
+                                .textFieldStyle(.plain)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(MacbotDS.Colors.textPri)
+                                .padding(.horizontal, MacbotDS.Space.sm)
+                                .padding(.vertical, MacbotDS.Space.sm)
+                                .onSubmit {
+                                    if !canvasRenameField.isEmpty {
+                                        viewModel.canvasViewModel.renameCanvas(canvas.id, title: canvasRenameField)
+                                    }
+                                    renamingCanvasId = nil
+                                }
+                                .onKeyPress(.escape) {
+                                    renamingCanvasId = nil
+                                    return .handled
+                                }
+                        } else {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(canvas.title)
+                                    .font(.caption.weight(isSelected ? .semibold : .regular))
+                                    .foregroundStyle(isSelected ? MacbotDS.Colors.textPri : MacbotDS.Colors.textSec)
+                                    .lineLimit(1)
+
+                                Text("\(viewModel.canvasViewModel.currentCanvasId == canvas.id ? viewModel.canvasViewModel.nodes.count : 0) nodes")
+                                    .font(.caption2)
+                                    .foregroundStyle(MacbotDS.Colors.textTer)
+                            }
+                            .padding(.horizontal, MacbotDS.Space.sm)
+                            .padding(.vertical, MacbotDS.Space.sm)
+                        }
+                    }
+                    .padding(.leading, MacbotDS.Space.sm)
+                    .padding(.trailing, MacbotDS.Space.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(isSelected ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.clear))
+                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                    .contentShape(Rectangle())
+                    .onTapGesture { viewModel.canvasViewModel.switchCanvas(canvas.id) }
+                    .padding(.horizontal, MacbotDS.Space.xs)
+                    .contextMenu {
+                        Button("Rename") {
+                            canvasRenameField = canvas.title
+                            renamingCanvasId = canvas.id
+                        }
+                        if viewModel.canvasViewModel.canvasList.count > 1 {
+                            Button("Delete", role: .destructive) {
+                                viewModel.canvasViewModel.deleteCanvas(canvas.id)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.vertical, MacbotDS.Space.xs)
+        }
     }
 
     private func modeButton(_ title: String, icon: String, mode: ContentMode) -> some View {
