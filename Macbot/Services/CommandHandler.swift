@@ -200,6 +200,15 @@ enum CommandHandler {
         case "/ghost":
             return await ghost(rest: rest)
 
+        case "/chart":
+            return await chartCommand(rest: rest)
+
+        case "/stbr":
+            return await stbrCommand(rest: rest)
+
+        case "/signals":
+            return await signalsCommand(rest: rest)
+
         case "/help":
             return helpText
 
@@ -466,6 +475,144 @@ enum CommandHandler {
         return "Created workflow '\(name)' (id=\(id)). Trigger: \"\(trigger)\""
     }
 
+    // MARK: - Financial Chart Commands
+
+    private static func chartCommand(rest: String) async -> String {
+        let parts = rest.trimmingCharacters(in: .whitespaces)
+            .split(maxSplits: 1, whereSeparator: \.isWhitespace)
+        guard let symbolPart = parts.first else {
+            return "Usage: /chart AAPL [period]\nPeriods: 1m, 3m, 6m, 1y, 2y, 5y (default: 1y)"
+        }
+        let symbol = String(symbolPart).uppercased()
+        let period = parts.count > 1
+            ? String(parts[1]).lowercased().trimmingCharacters(in: .whitespaces)
+            : "1y"
+
+        do {
+            let data = try await ChartDataService.fetchOHLCV(symbol: symbol, period: period)
+            await MainActor.run {
+                ChartWindowController.shared.showChart(
+                    type: .candlestickVolume(ohlcv: data, smas: nil),
+                    title: "\(symbol) — Candlestick (\(period.uppercased()))"
+                )
+            }
+            let change = data.count >= 2
+                ? (data.last!.close - data.first!.close) / data.first!.close * 100
+                : 0
+            return String(format: "Opened %@ chart (%d bars). Price: $%.2f (%+.2f%%)",
+                          symbol, data.count, data.last?.close ?? 0, change)
+        } catch {
+            return "Error loading chart for \(symbol): \(error.localizedDescription)"
+        }
+    }
+
+    private static func stbrCommand(rest: String) async -> String {
+        let symbol = rest.trimmingCharacters(in: .whitespaces).uppercased()
+        guard !symbol.isEmpty else {
+            return "Usage: /stbr AAPL"
+        }
+
+        do {
+            let (prices, stbrBars) = try await ChartDataService.fetchStbrData(symbol: symbol)
+            await MainActor.run {
+                ChartWindowController.shared.showChart(
+                    type: .stbrDualAxis(prices: prices, stbrBars: stbrBars),
+                    title: "\(symbol) — STBR Analysis"
+                )
+            }
+            if let lastStbr = stbrBars.last {
+                let riskLevel: String
+                if lastStbr.value < 0.5 { riskLevel = "Low" }
+                else if lastStbr.value < 1.0 { riskLevel = "Normal" }
+                else if lastStbr.value < 1.5 { riskLevel = "Elevated" }
+                else { riskLevel = "High" }
+                let emoji: String
+                switch lastStbr.color {
+                case "green": emoji = "\u{1F7E2}"   // green circle
+                case "yellow": emoji = "\u{1F7E1}"  // yellow circle
+                case "orange": emoji = "\u{1F7E0}"  // orange circle
+                case "red": emoji = "\u{1F534}"     // red circle
+                default: emoji = "\u{26AA}"         // white circle
+                }
+                return String(format: "Opened STBR chart for %@. Current STBR: %.2f (%@) %@",
+                              symbol, lastStbr.value, riskLevel, emoji)
+            }
+            return "Opened STBR chart for \(symbol)."
+        } catch {
+            return "Error loading STBR for \(symbol): \(error.localizedDescription)"
+        }
+    }
+
+    private static func signalsCommand(rest: String) async -> String {
+        let symbol = rest.trimmingCharacters(in: .whitespaces).uppercased()
+        guard !symbol.isEmpty else {
+            return "Usage: /signals AAPL"
+        }
+
+        do {
+            let report = try await ChartDataService.fetchSignals(symbol: symbol)
+            return formatSignalReport(report)
+        } catch {
+            return "Error fetching signals for \(symbol): \(error.localizedDescription)"
+        }
+    }
+
+    private static func formatSignalReport(_ r: SignalReport) -> String {
+        var lines: [String] = []
+
+        lines.append("\(r.symbol) — Technical Signals")
+        lines.append("")
+        lines.append(String(format: "Price: $%.2f", r.price))
+        lines.append(String(format: "Composite Score: %.0f/100 (%@)", r.compositeScore, r.compositeLabel))
+        lines.append("")
+
+        // RSI
+        let rsiLabel: String
+        if r.rsi < 30 { rsiLabel = "Oversold" }
+        else if r.rsi > 70 { rsiLabel = "Overbought" }
+        else { rsiLabel = "Neutral" }
+        lines.append(String(format: "RSI(14): %.1f (%@)", r.rsi, rsiLabel))
+
+        // STBR
+        let stbrEmoji: String
+        switch r.stbrColor {
+        case "green": stbrEmoji = "\u{1F7E2}"
+        case "yellow": stbrEmoji = "\u{1F7E1}"
+        case "orange": stbrEmoji = "\u{1F7E0}"
+        case "red": stbrEmoji = "\u{1F534}"
+        default: stbrEmoji = "\u{26AA}"
+        }
+        lines.append(String(format: "STBR: %.2f (%@) %@", r.stbr, r.stbrRiskLevel, stbrEmoji))
+
+        // MACD
+        let macdLabel = r.macdHistogram > 0 ? "Bullish" : "Bearish"
+        lines.append(String(format: "MACD Histogram: %+.2f (%@)", r.macdHistogram, macdLabel))
+
+        // SMA 50
+        if let sma50 = r.sma50 {
+            let aboveBelow = r.price > sma50 ? "price above \u{2705}" : "price below \u{274C}"
+            lines.append(String(format: "SMA 50: $%.2f (%@)", sma50, aboveBelow))
+        }
+
+        // SMA 200
+        if let sma200 = r.sma200 {
+            let aboveBelow = r.price > sma200 ? "price above \u{2705}" : "price below \u{274C}"
+            lines.append(String(format: "SMA 200: $%.2f (%@)", sma200, aboveBelow))
+        }
+
+        // Bollinger %B
+        if let pctB = r.bollingerPercentB {
+            let bandLabel: String
+            if pctB > 1.0 { bandLabel = "above upper band" }
+            else if pctB > 0.5 { bandLabel = "upper half" }
+            else if pctB >= 0 { bandLabel = "lower half" }
+            else { bandLabel = "below lower band" }
+            lines.append(String(format: "Bollinger %%B: %.2f (%@)", pctB, bandLabel))
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
     // MARK: - Ghost Cursor
 
     private static func ghost(rest: String) async -> String {
@@ -557,6 +704,9 @@ enum CommandHandler {
       /director <task> — open Director window to watch macbot work step-by-step
       /overlay — toggle transparent screen overlay (Cmd+Shift+O)
       /companion — toggle desktop companion character
+      /chart <symbol> [period] — open candlestick chart (1m/3m/6m/1y/2y/5y)
+      /stbr <symbol> — open STBR risk/volatility chart
+      /signals <symbol> — show technical signal report (RSI, MACD, STBR, etc.)
       /ghost <task> — ghost cursor takes over and performs UI actions
       /clear — reset conversation
       /status — system info
