@@ -34,6 +34,7 @@ struct CanvasNode: Identifiable, Equatable {
     var color: NodeColor
     var source: NodeSource
     var groupId: UUID?
+    var images: [Data]?
 
     init(
         id: UUID = UUID(),
@@ -42,7 +43,8 @@ struct CanvasNode: Identifiable, Equatable {
         width: CGFloat = 200,
         color: NodeColor = .note,
         source: NodeSource = .manual,
-        groupId: UUID? = nil
+        groupId: UUID? = nil,
+        images: [Data]? = nil
     ) {
         self.id = id
         self.position = position
@@ -51,6 +53,7 @@ struct CanvasNode: Identifiable, Equatable {
         self.color = color
         self.source = source
         self.groupId = groupId
+        self.images = images
     }
 
     var isChatNode: Bool {

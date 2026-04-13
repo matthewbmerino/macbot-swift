@@ -112,6 +112,14 @@ struct CanvasView: View {
                     return .ignored
                 }
             }
+            // Cmd+Return = execute selected nodes
+            .onKeyPress(.return) {
+                guard NSEvent.modifierFlags.contains(.command),
+                      viewModel.editingNodeId == nil,
+                      !viewModel.selectedIds.isEmpty else { return .ignored }
+                executeSelectedNodes()
+                return .handled
+            }
             // Quick add shortcuts (only when not editing)
             .onKeyPress(characters: CharacterSet(charactersIn: "ntre/")) { press in
                 guard viewModel.editingNodeId == nil else { return .ignored }
@@ -600,12 +608,17 @@ struct CanvasView: View {
 
     @ViewBuilder
     private func nodeContextMenu(node: CanvasNode) -> some View {
+        // Execute — the primary AI action
+        Button("Execute") {
+            viewModel.select(node.id)
+            executeSelectedNodes()
+        }
+
         Button("Edit") {
             viewModel.select(node.id)
             viewModel.editingNodeId = node.id
         }
 
-        // Chat from this node
         Button("Chat from here") {
             viewModel.startChat(from: node.id)
         }
@@ -671,6 +684,11 @@ struct CanvasView: View {
     private func invokeAI(action: String, prompt: String) {
         guard let orchestrator else { return }
         viewModel.invokeAI(action: action, prompt: prompt, orchestrator: orchestrator)
+    }
+
+    private func executeSelectedNodes() {
+        guard let orchestrator else { return }
+        viewModel.executeNodes(orchestrator: orchestrator)
     }
 
     private func invokeCouncil(agents: [AgentCategory]) {
@@ -893,6 +911,13 @@ struct CanvasView: View {
             }
 
             Divider().frame(height: 18)
+
+            // Execute — zero-prompt AI, just do what the note says
+            toolbarToggle("bolt.fill", help: "Execute (Cmd+Return)",
+                          isActive: false) {
+                executeSelectedNodes()
+            }
+            .disabled(viewModel.selectedIds.isEmpty || viewModel.isProcessingAI)
 
             toolbarButton("sparkles", help: "Ask AI (/)") {
                 withAnimation(Motion.snappy) { showAIBar.toggle() }
@@ -1471,6 +1496,23 @@ struct CanvasNodeView: View {
                         }
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            // Images (from AI generation)
+            if let images = node.images, !images.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: MacbotDS.Space.xs) {
+                        ForEach(Array(images.enumerated()), id: \.offset) { _, data in
+                            if let nsImage = NSImage(data: data) {
+                                Image(nsImage: nsImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(maxHeight: 160)
+                                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                            }
+                        }
+                    }
                 }
             }
 

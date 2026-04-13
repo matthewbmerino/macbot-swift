@@ -668,7 +668,102 @@ final class CanvasViewModel {
                         if let idx = self.nodes.firstIndex(where: { $0.id == resultNode.id }) {
                             self.nodes[idx].text = accumulated
                         }
-                    case .status, .agentSelected, .image:
+                    case .image(let data, _):
+                        if let idx = self.nodes.firstIndex(where: { $0.id == resultNode.id }) {
+                            var imgs = self.nodes[idx].images ?? []
+                            imgs.append(data)
+                            self.nodes[idx].images = imgs
+                        }
+                    case .status, .agentSelected:
+                        break
+                    }
+                }
+            } catch {
+                if accumulated.isEmpty {
+                    accumulated = "Error: \(error.localizedDescription)"
+                    if let idx = self.nodes.firstIndex(where: { $0.id == resultNode.id }) {
+                        self.nodes[idx].text = accumulated
+                    }
+                }
+            }
+
+            self.isProcessingAI = false
+            self.aiStreamingNodeId = nil
+            self.scheduleSave()
+        }
+    }
+
+    // MARK: - Execute (zero-prompt AI)
+
+    /// One-click AI: treats the selected nodes' text as instructions and
+    /// executes them directly. No additional prompt needed.
+    func executeNodes(orchestrator: Orchestrator) {
+        let selected = nodes.filter { selectedIds.contains($0.id) }
+        guard !selected.isEmpty else { return }
+
+        let cx = selected.map(\.position.x).reduce(0, +) / CGFloat(selected.count)
+        let cy = selected.map(\.position.y).reduce(0, +) / CGFloat(selected.count)
+        let resultPosition = CGPoint(x: cx + 320, y: cy)
+
+        let origin = NodeSource.AIOrigin(
+            action: "execute",
+            sourceNodeIds: selected.map(\.id),
+            timestamp: Date()
+        )
+        let resultNode = CanvasNode(
+            position: resultPosition,
+            text: "",
+            width: 300,
+            color: .ai,
+            source: .ai(origin)
+        )
+        nodes.append(resultNode)
+        aiStreamingNodeId = resultNode.id
+
+        for id in selectedIds {
+            edges.append(CanvasEdge(fromId: id, toId: resultNode.id))
+        }
+
+        let userText = selected.map(\.text).joined(separator: "\n\n")
+
+        let fullPrompt = """
+        You are an action-oriented AI assistant. The user wrote the following on their canvas. Treat it as a direct request or instruction and execute it immediately.
+
+        \(userText)
+
+        Rules:
+        - If they ask for information (metrics, time, weather, data), fetch and provide it directly.
+        - If they ask for code, write the code immediately.
+        - If they ask for an image, generate it.
+        - If they write a topic or concept, provide a thorough, useful summary.
+        - If they write a question, answer it directly.
+        - Never ask what they mean. Never ask follow-up questions. Just do it.
+        - Format your response clearly using Markdown.
+        """
+
+        isProcessingAI = true
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var accumulated = ""
+
+            do {
+                for try await event in orchestrator.handleMessageStream(
+                    userId: "canvas-exec", message: fullPrompt
+                ) {
+                    switch event {
+                    case .text(let chunk):
+                        accumulated += chunk
+                        if let idx = self.nodes.firstIndex(where: { $0.id == resultNode.id }) {
+                            self.nodes[idx].text = accumulated
+                        }
+                    case .image(let data, _):
+                        if let idx = self.nodes.firstIndex(where: { $0.id == resultNode.id }) {
+                            var imgs = self.nodes[idx].images ?? []
+                            imgs.append(data)
+                            self.nodes[idx].images = imgs
+                        }
+                    case .status, .agentSelected:
                         break
                     }
                 }
