@@ -55,9 +55,6 @@ struct MessageBubble: View {
                     .transition(.opacity)
                 }
 
-                Text(message.timestamp, style: .relative)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
             }
 
             // Content
@@ -99,13 +96,6 @@ struct MessageBubble: View {
                 imageGrid(images)
             }
 
-            // Response metrics
-            if let metrics = message.metricsString {
-                Text(metrics)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .padding(.top, 2)
-            }
         }
         .padding(.horizontal, MacbotDS.Space.lg)
         .padding(.vertical, MacbotDS.Space.sm)

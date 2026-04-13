@@ -1670,8 +1670,6 @@ struct CanvasNodeView: View {
                 .font(.system(size: 8))
             Text(origin.chatTitle)
                 .lineLimit(1)
-            Text("·")
-            Text(origin.timestamp, style: .relative)
         }
         .font(.system(size: 9))
         .foregroundStyle(MacbotDS.Colors.textTer)
@@ -1682,8 +1680,6 @@ struct CanvasNodeView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: 8))
             Text("Generated")
-            Text("·")
-            Text(origin.timestamp, style: .relative)
         }
         .font(.system(size: 9))
         .foregroundStyle(Color(hue: 0.35, saturation: 0.4, brightness: 0.7))
