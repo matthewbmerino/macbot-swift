@@ -1456,6 +1456,10 @@ struct CanvasView: View {
                             viewModel.deleteCanvas(id)
                         }
                     }
+                    Divider()
+                    Button("Export as Markdown...") {
+                        viewModel.exportMarkdownToFile()
+                    }
                 } label: {
                     HStack(spacing: MacbotDS.Space.xs) {
                         Image(systemName: "rectangle.on.rectangle.angled")

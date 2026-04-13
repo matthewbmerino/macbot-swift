@@ -81,6 +81,43 @@ final class CanvasViewModel {
         searchResults = []
     }
 
+    // MARK: - Export
+
+    func exportAsMarkdown() -> String {
+        var md = "# \(canvasList.first(where: { $0.id == currentCanvasId })?.title ?? "Canvas")\n\n"
+
+        for node in nodes {
+            let typeLabel = node.color.rawValue.capitalized
+            md += "## \(typeLabel)\n\n"
+            if !node.text.isEmpty {
+                md += node.text + "\n\n"
+            }
+
+            // Show edges from this node
+            let outgoing = edges.filter { $0.fromId == node.id }
+            for edge in outgoing {
+                if let target = nodes.first(where: { $0.id == edge.toId }) {
+                    let label = edge.label ?? "→"
+                    let preview = String(target.text.prefix(60))
+                    md += "- **\(label)** \(preview)\n"
+                }
+            }
+            if !outgoing.isEmpty { md += "\n" }
+            md += "---\n\n"
+        }
+        return md
+    }
+
+    func exportMarkdownToFile() {
+        let md = exportAsMarkdown()
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = "\(canvasList.first(where: { $0.id == currentCanvasId })?.title ?? "Canvas").md"
+        if panel.runModal() == .OK, let url = panel.url {
+            try? md.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
     /// Node open in full-window editor.
     var fullEditorNodeId: UUID?
     var fullEditorText: String = ""
