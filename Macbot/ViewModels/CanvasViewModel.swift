@@ -5,7 +5,12 @@ import SwiftUI
 final class CanvasViewModel {
     // MARK: - Canvas content
 
-    var nodes: [CanvasNode] = []
+    var nodes: [CanvasNode] = [] {
+        didSet { _nodeById = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) }) }
+    }
+    /// O(1) node lookup — rebuilt automatically when `nodes` changes.
+    private(set) var _nodeById: [UUID: CanvasNode] = [:]
+
     var edges: [CanvasEdge] = []
     var groups: [CanvasGroup] = []
 
@@ -29,6 +34,9 @@ final class CanvasViewModel {
     var selectedIds: Set<UUID> = []
     var editingNodeId: UUID?
     var draggingNodeId: UUID?
+    var hoveredNodeId: UUID?
+    /// Source nodes currently waiting for AI results.
+    var processingSourceIds: Set<UUID> = []
     var editingEdgeId: UUID?
     var editingEdgeLabel: String = ""
 
@@ -42,6 +50,21 @@ final class CanvasViewModel {
 
     /// The 3D node currently "entered" for interactive camera control.
     var entered3DNodeId: UUID?
+
+    // MARK: - Box selection
+
+    /// Current rubber-band rectangle in view coordinates (nil when not dragging).
+    var selectionRect: CGRect?
+    var selectionOrigin: CGPoint?
+
+    // MARK: - Help overlay
+
+    var showShortcutHelp = false
+
+    // MARK: - Multi-node drag
+
+    /// Positions captured at drag start for multi-node drag.
+    var dragStartPositions: [UUID: CGPoint] = [:]
 
     // MARK: - Universal Search
 
@@ -334,5 +357,123 @@ final class CanvasViewModel {
         selectedIds.removeAll()
         editingNodeId = nil
         editingEdgeId = nil
+    }
+
+    // MARK: - Keyboard node navigation
+
+    /// Navigate to the next/previous node in spatial order (Tab / Shift-Tab).
+    func navigateNode(forward: Bool) {
+        let sorted = nodes.sorted { a, b in
+            if abs(a.position.y - b.position.y) < 40 {
+                return a.position.x < b.position.x
+            }
+            return a.position.y < b.position.y
+        }
+        guard !sorted.isEmpty else { return }
+
+        let currentId = selectedIds.first
+        let currentIdx = currentId.flatMap { id in sorted.firstIndex(where: { $0.id == id }) }
+
+        let nextIdx: Int
+        if let idx = currentIdx {
+            nextIdx = forward
+                ? (idx + 1) % sorted.count
+                : (idx - 1 + sorted.count) % sorted.count
+        } else {
+            nextIdx = 0
+        }
+
+        let target = sorted[nextIdx]
+        selectedIds = [target.id]
+        centerOnNode(target)
+    }
+
+    /// Navigate to the nearest node in the given direction from the current selection.
+    func navigateDirection(_ direction: NavigationDirection) {
+        guard let currentId = selectedIds.first,
+              let current = nodes.first(where: { $0.id == currentId }) else {
+            // No selection — select first node
+            if let first = nodes.first {
+                selectedIds = [first.id]
+                centerOnNode(first)
+            }
+            return
+        }
+
+        let candidates: [CanvasNode] = nodes.filter { $0.id != currentId }.filter { node in
+            let dx = node.position.x - current.position.x
+            let dy = node.position.y - current.position.y
+            switch direction {
+            case .up:    return dy < -20
+            case .down:  return dy > 20
+            case .left:  return dx < -20
+            case .right: return dx > 20
+            }
+        }
+
+        // Pick the closest candidate biased toward the primary axis
+        guard let best = candidates.min(by: { a, b in
+            directionScore(from: current, to: a, direction: direction)
+                < directionScore(from: current, to: b, direction: direction)
+        }) else { return }
+
+        selectedIds = [best.id]
+        centerOnNode(best)
+    }
+
+    enum NavigationDirection {
+        case up, down, left, right
+    }
+
+    private func directionScore(from: CanvasNode, to: CanvasNode, direction: NavigationDirection) -> CGFloat {
+        let dx = to.position.x - from.position.x
+        let dy = to.position.y - from.position.y
+        // Primary axis distance + penalty for cross-axis deviation
+        switch direction {
+        case .up, .down:
+            return abs(dy) + abs(dx) * 2
+        case .left, .right:
+            return abs(dx) + abs(dy) * 2
+        }
+    }
+
+    /// Smoothly center the viewport on a node.
+    func centerOnNode(_ node: CanvasNode) {
+        withAnimation(Motion.smooth) {
+            offset = CGSize(
+                width: viewSize.width / 2 - node.position.x * scale,
+                height: viewSize.height / 2 - node.position.y * scale
+            )
+            lastCommittedOffset = offset
+        }
+    }
+
+    // MARK: - Box selection
+
+    func beginBoxSelection(at viewPoint: CGPoint) {
+        selectionOrigin = viewPoint
+        selectionRect = CGRect(origin: viewPoint, size: .zero)
+    }
+
+    func updateBoxSelection(to viewPoint: CGPoint) {
+        guard let origin = selectionOrigin else { return }
+        selectionRect = CGRect(
+            x: min(origin.x, viewPoint.x),
+            y: min(origin.y, viewPoint.y),
+            width: abs(viewPoint.x - origin.x),
+            height: abs(viewPoint.y - origin.y)
+        )
+    }
+
+    func commitBoxSelection() {
+        guard let rect = selectionRect else { return }
+        // Find all nodes whose view-space position falls inside the rectangle
+        let selected = nodes.filter { node in
+            let vp = canvasToView(node.position)
+            return rect.contains(vp)
+        }
+        selectedIds = Set(selected.map(\.id))
+        selectionRect = nil
+        selectionOrigin = nil
     }
 }

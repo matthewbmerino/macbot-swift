@@ -6,9 +6,12 @@ import SwiftUI
 /// cursor-anchored zoom, and eliminates gesture conflicts with node dragging.
 struct CanvasScrollHandler: NSViewRepresentable {
     var onPan: (CGFloat, CGFloat) -> Void
-    var onZoom: (CGFloat, CGPoint) -> Void
+    /// (factor, anchor, animated) — animated is true for discrete mouse-wheel steps.
+    var onZoom: (CGFloat, CGPoint, Bool) -> Void
     var onSpacebarChanged: (Bool) -> Void
     var onMouseMoved: (CGPoint) -> Void
+    var isSpacebarDown: Bool = false
+    var isEdgeModeActive: Bool = false
 
     func makeNSView(context: Context) -> CanvasScrollNSView {
         let view = CanvasScrollNSView()
@@ -24,6 +27,7 @@ struct CanvasScrollHandler: NSViewRepresentable {
         nsView.onZoom = onZoom
         nsView.onSpacebarChanged = onSpacebarChanged
         nsView.onMouseMoved = onMouseMoved
+        nsView.updateCursor(spacebarDown: isSpacebarDown, edgeMode: isEdgeModeActive)
     }
 }
 
@@ -33,7 +37,7 @@ struct CanvasScrollHandler: NSViewRepresentable {
 /// - Cmd+scroll → zoom toward cursor (both trackpad and mouse)
 final class CanvasScrollNSView: NSView {
     var onPan: ((CGFloat, CGFloat) -> Void)?
-    var onZoom: ((CGFloat, CGPoint) -> Void)?
+    var onZoom: ((CGFloat, CGPoint, Bool) -> Void)?
     var onSpacebarChanged: ((Bool) -> Void)?
     var onMouseMoved: ((CGPoint) -> Void)?
 
@@ -110,27 +114,35 @@ final class CanvasScrollNSView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        let isTrackpad = event.phase != [] || event.momentumPhase != []
         let cmdHeld = event.modifierFlags.contains(.command)
 
-        if cmdHeld || !isTrackpad {
-            // Zoom toward cursor
+        if cmdHeld {
+            // Cmd+scroll = zoom toward cursor (trackpad or mouse)
             let locationInView = convert(event.locationInWindow, from: nil)
-            // Positive deltaY = scroll up = zoom in
             let zoomDelta = event.scrollingDeltaY
             let factor: CGFloat
             if event.hasPreciseScrollingDeltas {
-                // Trackpad — smooth, continuous
-                factor = 1.0 + zoomDelta * 0.004
+                // Trackpad with Cmd — smooth, continuous
+                factor = 1.0 + zoomDelta * 0.008
             } else {
-                // Mouse wheel — discrete clicks
-                factor = zoomDelta > 0 ? 1.08 : 0.92
+                // Mouse wheel with Cmd — discrete steps
+                factor = zoomDelta > 0 ? 1.15 : 0.87
             }
-            onZoom?(factor, locationInView)
+            let isDiscrete = !event.hasPreciseScrollingDeltas
+            onZoom?(factor, locationInView, isDiscrete)
         } else {
-            // Trackpad pan — includes momentum phases automatically
-            let dx = event.scrollingDeltaX
-            let dy = event.scrollingDeltaY
+            // Bare scroll = always pan (trackpad or mouse wheel)
+            let dx: CGFloat
+            let dy: CGFloat
+            if event.hasPreciseScrollingDeltas {
+                // Trackpad — native deltas with momentum
+                dx = event.scrollingDeltaX
+                dy = event.scrollingDeltaY
+            } else {
+                // Mouse wheel — scale up the small discrete deltas
+                dx = event.scrollingDeltaX * 8
+                dy = event.scrollingDeltaY * 8
+            }
             onPan?(dx, dy)
         }
     }
@@ -138,7 +150,17 @@ final class CanvasScrollNSView: NSView {
     override func magnify(with event: NSEvent) {
         let locationInView = convert(event.locationInWindow, from: nil)
         let factor = 1.0 + event.magnification
-        onZoom?(factor, locationInView)
+        onZoom?(factor, locationInView, false)
+    }
+
+    func updateCursor(spacebarDown: Bool, edgeMode: Bool) {
+        if spacebarDown {
+            NSCursor.openHand.set()
+        } else if edgeMode {
+            NSCursor.crosshair.set()
+        } else {
+            NSCursor.arrow.set()
+        }
     }
 
     // Pass through mouse events so SwiftUI handles clicks/drags on nodes

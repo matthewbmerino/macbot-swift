@@ -12,13 +12,22 @@ struct CanvasView: View {
     @State private var canvasRenameText = ""
     @FocusState private var canvasFocused: Bool
 
-    /// O(1) node lookup for edge rendering.
-    private var nodeById: [UUID: CanvasNode] {
-        Dictionary(uniqueKeysWithValues: viewModel.nodes.map { ($0.id, $0) })
-    }
+    /// O(1) node lookup for edge rendering — cached in ViewModel.
+    private var nodeById: [UUID: CanvasNode] { viewModel._nodeById }
 
     private var viewCenter: CGPoint {
         CGPoint(x: viewModel.viewSize.width / 2, y: viewModel.viewSize.height / 2)
+    }
+
+    /// True when any text input is active — suppresses single-key shortcuts.
+    private var isTextInputActive: Bool {
+        viewModel.editingNodeId != nil
+            || showAIBar
+            || viewModel.showCanvasChat
+            || viewModel.showSearch
+            || isRenamingCanvas
+            || viewModel.editingEdgeId != nil
+            || viewModel.fullEditorNodeId != nil
     }
 
     var body: some View {
@@ -34,6 +43,44 @@ struct CanvasView: View {
                 // AI streaming indicator
                 if viewModel.isProcessingAI {
                     aiProcessingOverlay
+                }
+
+                // Minimap
+                if viewModel.showMinimap {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            CanvasMinimap(
+                                nodes: viewModel.nodes,
+                                groups: viewModel.groups,
+                                viewSize: viewModel.viewSize,
+                                scale: viewModel.scale,
+                                offset: viewModel.offset,
+                                onNavigate: { newOffset in
+                                    withAnimation(Motion.smooth) {
+                                        viewModel.offset = newOffset
+                                        viewModel.lastCommittedOffset = newOffset
+                                    }
+                                }
+                            )
+                            .padding(MacbotDS.Space.md)
+                        }
+                        Spacer()
+                    }
+                    .transition(.opacity)
+                }
+
+                // Box selection overlay
+                if let rect = viewModel.selectionRect {
+                    Rectangle()
+                        .fill(MacbotDS.Colors.accent.opacity(0.08))
+                        .overlay(
+                            Rectangle()
+                                .stroke(MacbotDS.Colors.accent.opacity(0.5), lineWidth: 1)
+                        )
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                        .allowsHitTesting(false)
                 }
 
                 // Floating UI
@@ -53,7 +100,7 @@ struct CanvasView: View {
             .focused($canvasFocused)
             .onAppear { canvasFocused = true }
             .onKeyPress(.delete) {
-                guard viewModel.editingNodeId == nil else { return .ignored }
+                guard !isTextInputActive else { return .ignored }
                 withAnimation(Motion.snappy) { viewModel.deleteSelected() }
                 return .handled
             }
@@ -61,12 +108,14 @@ struct CanvasView: View {
             // so it doesn't steal space key from text editors
             // Zoom shortcuts
             .onKeyPress(characters: CharacterSet(charactersIn: "=+")) { _ in
+                guard !isTextInputActive else { return .ignored }
                 withAnimation(Motion.snappy) {
                     viewModel.zoom(by: 1.25, anchor: viewCenter)
                 }
                 return .handled
             }
             .onKeyPress(characters: CharacterSet(charactersIn: "-")) { _ in
+                guard !isTextInputActive else { return .ignored }
                 withAnimation(Motion.snappy) {
                     viewModel.zoom(by: 0.8, anchor: viewCenter)
                 }
@@ -74,12 +123,12 @@ struct CanvasView: View {
             }
             // Backspace also deletes
             .onKeyPress(.init("\u{08}")) {
-                guard viewModel.editingNodeId == nil else { return .ignored }
+                guard !isTextInputActive else { return .ignored }
                 withAnimation(Motion.snappy) { viewModel.deleteSelected() }
                 return .handled
             }
             // Cmd shortcuts
-            .onKeyPress(characters: CharacterSet(charactersIn: "01agcvxdzf")) { press in
+            .onKeyPress(characters: CharacterSet(charactersIn: "012agcvxdzf")) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
                 if press.characters == "f" && press.modifiers.contains(.shift) {
                     withAnimation(Motion.snappy) { viewModel.showSearch = true }
@@ -97,6 +146,9 @@ struct CanvasView: View {
                 case "1":
                     withAnimation(Motion.smooth) { viewModel.zoomToFit() }
                     return .handled
+                case "2":
+                    withAnimation(Motion.smooth) { viewModel.zoomToSelection() }
+                    return .handled
                 case "a":
                     viewModel.selectAll()
                     return .handled
@@ -107,6 +159,9 @@ struct CanvasView: View {
                     viewModel.copySelected()
                     return .handled
                 case "v":
+                    if pasteImagesFromClipboard() {
+                        return .handled
+                    }
                     withAnimation(Motion.snappy) { viewModel.paste() }
                     return .handled
                 case "x":
@@ -134,9 +189,9 @@ struct CanvasView: View {
                 executeSelectedNodes()
                 return .handled
             }
-            // Quick add shortcuts (only when not editing)
-            .onKeyPress(characters: CharacterSet(charactersIn: "ntre/")) { press in
-                guard viewModel.editingNodeId == nil else { return .ignored }
+            // Quick add shortcuts (only when no text input is active)
+            .onKeyPress(characters: CharacterSet(charactersIn: "ntre/m?")) { press in
+                guard !isTextInputActive else { return .ignored }
                 guard !press.modifiers.contains(.command) else { return .ignored }
                 switch press.characters {
                 case "n": quickAdd(color: .note); return .handled
@@ -145,15 +200,50 @@ struct CanvasView: View {
                 case "e":
                     viewModel.edgeModeActive.toggle()
                     return .handled
+                case "m":
+                    withAnimation(Motion.snappy) { viewModel.showMinimap.toggle() }
+                    return .handled
                 case "/":
                     withAnimation(Motion.snappy) { showAIBar = true }
+                    return .handled
+                case "?":
+                    withAnimation(Motion.snappy) { viewModel.showShortcutHelp.toggle() }
                     return .handled
                 default: return .ignored
                 }
             }
-            // Escape cascade: 3D → edge mode → AI bar → chat → deselect
+            // Tab to cycle forward through nodes
+            .onKeyPress(.tab) {
+                guard !isTextInputActive else { return .ignored }
+                viewModel.navigateNode(forward: true)
+                return .handled
+            }
+            // Arrow keys for spatial navigation between nodes
+            .onKeyPress(.upArrow) {
+                guard !isTextInputActive else { return .ignored }
+                viewModel.navigateDirection(.up)
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                guard !isTextInputActive else { return .ignored }
+                viewModel.navigateDirection(.down)
+                return .handled
+            }
+            .onKeyPress(.leftArrow) {
+                guard !isTextInputActive else { return .ignored }
+                viewModel.navigateDirection(.left)
+                return .handled
+            }
+            .onKeyPress(.rightArrow) {
+                guard !isTextInputActive else { return .ignored }
+                viewModel.navigateDirection(.right)
+                return .handled
+            }
+            // Escape cascade: help → 3D → edge mode → AI bar → chat → deselect
             .onKeyPress(.escape) {
-                if viewModel.entered3DNodeId != nil {
+                if viewModel.showShortcutHelp {
+                    withAnimation(Motion.snappy) { viewModel.showShortcutHelp = false }
+                } else if viewModel.entered3DNodeId != nil {
                     viewModel.exit3DNode()
                 } else if viewModel.edgeModeActive {
                     viewModel.edgeModeActive = false
@@ -175,6 +265,10 @@ struct CanvasView: View {
                 return true
             } isTargeted: { targeted in
                 viewModel.dropTargeted = targeted
+            }
+            .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers, location in
+                handleImageDrop(providers: providers, at: location)
+                return true
             }
             .overlay {
                 if viewModel.dropTargeted {
@@ -198,6 +292,12 @@ struct CanvasView: View {
         .overlay {
             if viewModel.fullEditorNodeId != nil {
                 fullWindowEditor
+                    .transition(.opacity)
+            }
+        }
+        .overlay {
+            if viewModel.showShortcutHelp {
+                shortcutHelpOverlay
                     .transition(.opacity)
             }
         }
@@ -426,6 +526,28 @@ struct CanvasView: View {
         }
     }
 
+    private func handleImageDrop(providers: [NSItemProvider], at location: CGPoint) {
+        let canvasPoint = viewModel.viewToCanvas(location)
+        // Check if we dropped onto an existing node
+        let targetNode = hitTest(canvasPoint, excluding: nil)
+
+        for provider in providers {
+            if provider.canLoadObject(ofClass: NSImage.self) {
+                provider.loadObject(ofClass: NSImage.self) { object, _ in
+                    guard let image = object as? NSImage,
+                          let data = image.tiffRepresentation else { return }
+                    Task { @MainActor in
+                        if let target = targetNode {
+                            self.viewModel.addImages(to: target.id, images: [data])
+                        } else {
+                            self.viewModel.addImagesToSelection([data], at: canvasPoint)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private var dropOverlay: some View {
         RoundedRectangle(cornerRadius: MacbotDS.Radius.lg, style: .continuous)
             .stroke(MacbotDS.Colors.accent.opacity(0.5), lineWidth: 1.5)
@@ -460,8 +582,8 @@ struct CanvasView: View {
                     onPan: { dx, dy in
                         viewModel.handleTrackpadPan(deltaX: dx, deltaY: dy)
                     },
-                    onZoom: { factor, anchor in
-                        viewModel.zoom(by: factor, anchor: anchor)
+                    onZoom: { factor, anchor, animated in
+                        viewModel.zoom(by: factor, anchor: anchor, animated: animated)
                     },
                     onSpacebarChanged: { down in
                         viewModel.isSpacebarDown = down
@@ -470,12 +592,14 @@ struct CanvasView: View {
                         if viewModel.pendingEdgeFromId != nil {
                             viewModel.pendingEdgeEnd = point
                         }
-                    }
+                    },
+                    isSpacebarDown: viewModel.isSpacebarDown,
+                    isEdgeModeActive: viewModel.edgeModeActive || viewModel.pendingEdgeFromId != nil
                 )
             }
             .contentShape(Rectangle())
-            // Spacebar + drag for pan (Figma pattern)
-            .gesture(spacebarPanGesture)
+            // Spacebar + drag for pan, otherwise box selection
+            .gesture(spacebarPanOrBoxSelectGesture)
             .onTapGesture(count: 2) { location in
                 withAnimation(Motion.snappy) {
                     let canvasPoint = viewModel.viewToCanvas(location)
@@ -495,45 +619,80 @@ struct CanvasView: View {
     }
 
     private func drawGrid(ctx: GraphicsContext, size: CGSize) {
-        let spacing: CGFloat = 40 * viewModel.scale
-        guard spacing > 4 else { return }
+        let baseSpacing: CGFloat = 40
+        let spacing = baseSpacing * viewModel.scale
+        guard spacing > 3 else { return }
 
+        let majorEvery = 5 // every 5th dot is a major dot
         let ox = viewModel.offset.width.truncatingRemainder(dividingBy: spacing)
         let oy = viewModel.offset.height.truncatingRemainder(dividingBy: spacing)
-        let dotRadius: CGFloat = max(1.5, 1.5 * viewModel.scale)
-        let color = Color(nsColor: .separatorColor).opacity(0.55)
 
+        // Grid indices for major dot detection
+        let startCol = Int(floor(-viewModel.offset.width / spacing))
+        let startRow = Int(floor(-viewModel.offset.height / spacing))
+
+        let minorRadius: CGFloat = max(1.0, 1.0 * viewModel.scale)
+        let majorRadius: CGFloat = max(2.0, 2.0 * viewModel.scale)
+        let minorColor = Color(nsColor: .separatorColor).opacity(0.35)
+        let majorColor = Color(nsColor: .separatorColor).opacity(0.7)
+
+        // Fade out minor dots at low zoom for cleaner look
+        let showMinor = spacing > 6
+
+        var col = 0
         var x = ox
         while x < size.width {
+            var row = 0
             var y = oy
             while y < size.height {
-                ctx.fill(
-                    Path(ellipseIn: CGRect(
-                        x: x - dotRadius / 2, y: y - dotRadius / 2,
-                        width: dotRadius, height: dotRadius
-                    )),
-                    with: .color(color)
-                )
+                let isMajor = (startCol + col) % majorEvery == 0 && (startRow + row) % majorEvery == 0
+                if isMajor || showMinor {
+                    let r = isMajor ? majorRadius : minorRadius
+                    let c = isMajor ? majorColor : minorColor
+                    ctx.fill(
+                        Path(ellipseIn: CGRect(
+                            x: x - r / 2, y: y - r / 2,
+                            width: r, height: r
+                        )),
+                        with: .color(c)
+                    )
+                }
                 y += spacing
+                row += 1
             }
             x += spacing
+            col += 1
         }
     }
 
     // MARK: - Gestures
 
-    /// Spacebar + drag for manual panning (Figma-style).
-    private var spacebarPanGesture: some Gesture {
-        DragGesture()
+    /// Spacebar + drag for pan, otherwise box selection.
+    private var spacebarPanOrBoxSelectGesture: some Gesture {
+        DragGesture(minimumDistance: 4)
             .onChanged { value in
-                guard viewModel.isSpacebarDown else { return }
-                viewModel.offset = CGSize(
-                    width: viewModel.lastCommittedOffset.width + value.translation.width,
-                    height: viewModel.lastCommittedOffset.height + value.translation.height
-                )
+                if viewModel.isSpacebarDown {
+                    // Pan mode
+                    viewModel.selectionRect = nil
+                    viewModel.selectionOrigin = nil
+                    viewModel.offset = CGSize(
+                        width: viewModel.lastCommittedOffset.width + value.translation.width,
+                        height: viewModel.lastCommittedOffset.height + value.translation.height
+                    )
+                } else {
+                    // Box selection mode
+                    if viewModel.selectionOrigin == nil {
+                        viewModel.beginBoxSelection(at: value.startLocation)
+                    }
+                    viewModel.updateBoxSelection(to: value.location)
+                }
             }
             .onEnded { _ in
-                viewModel.lastCommittedOffset = viewModel.offset
+                if viewModel.isSpacebarDown {
+                    viewModel.lastCommittedOffset = viewModel.offset
+                } else if viewModel.selectionRect != nil {
+                    viewModel.commitBoxSelection()
+                }
             }
     }
 
@@ -547,11 +706,11 @@ struct CanvasView: View {
                 onRename: { viewModel.renameGroup(id: group.id, title: $0) },
                 onDelete: { viewModel.deleteGroup(id: group.id) }
             )
+            .scaleEffect(viewModel.scale)
             .position(viewModel.canvasToView(CGPoint(
                 x: group.position.x + group.size.width / 2,
                 y: group.position.y + group.size.height / 2
             )))
-            .scaleEffect(viewModel.scale)
         }
     }
 
@@ -652,12 +811,12 @@ struct CanvasView: View {
                         text: $viewModel.editingEdgeLabel,
                         onCommit: { viewModel.updateEdgeLabel(id: edge.id, label: viewModel.editingEdgeLabel) }
                     )
-                    .position(midpoint)
                     .scaleEffect(viewModel.scale)
+                    .position(midpoint)
                 } else {
                     edgeLabelView(edge: edge)
-                        .position(midpoint)
                         .scaleEffect(viewModel.scale)
+                        .position(midpoint)
                         .onTapGesture(count: 2) {
                             viewModel.editingEdgeId = edge.id
                             viewModel.editingEdgeLabel = edge.label ?? ""
@@ -827,40 +986,68 @@ struct CanvasView: View {
     }
 
     private var nodesLayer: some View {
-        ForEach(visibleNodes) { node in
+        let isCreatingEdge = viewModel.pendingEdgeFromId != nil
+
+        return ForEach(visibleNodes) { node in
+            let isHovered = viewModel.hoveredNodeId == node.id
+            let isDragging = viewModel.draggingNodeId == node.id
+            let isSelected = viewModel.selectedIds.contains(node.id)
+            let isEdgeTarget = isCreatingEdge
+                && viewModel.pendingEdgeFromId != node.id
+                && isHovered
+
             CanvasNodeView(
                 node: node,
-                isSelected: viewModel.selectedIds.contains(node.id),
+                isSelected: isSelected,
                 isEditing: viewModel.editingNodeId == node.id,
                 isAIStreaming: viewModel.aiStreamingNodeId == node.id
                     || viewModel.activeCouncilNodeIds.contains(node.id),
+                isProcessingSource: viewModel.processingSourceIds.contains(node.id),
                 isEntered3D: viewModel.entered3DNodeId == node.id,
+                isHovered: isHovered,
                 scale: viewModel.scale,
                 onTextChange: { viewModel.updateText(id: node.id, text: $0) },
                 onCommitEdit: { viewModel.editingNodeId = nil },
-                onStartEdge: { viewModel.pendingEdgeFromId = node.id }
+                onStartEdge: { viewModel.pendingEdgeFromId = node.id },
+                onExecute: {
+                    viewModel.select(node.id)
+                    executeSelectedNodes()
+                }
             )
+            .scaleEffect(viewModel.scale * (isDragging ? 1.03 : isHovered ? 1.01 : 1.0))
             .position(viewModel.canvasToView(node.position))
-            .scaleEffect(viewModel.scale * (viewModel.draggingNodeId == node.id ? 1.03 : 1.0))
             .shadow(
-                color: viewModel.draggingNodeId == node.id ? .black.opacity(0.18) : .clear,
-                radius: 20, y: 8
+                color: isDragging ? .black.opacity(0.18) :
+                       isEdgeTarget ? MacbotDS.Colors.accent.opacity(0.3) :
+                       isHovered && !isSelected ? .black.opacity(0.10) : .clear,
+                radius: isDragging ? 20 : isEdgeTarget ? 16 : 12,
+                y: isDragging ? 8 : 4
             )
-            .animation(Motion.snappy, value: viewModel.draggingNodeId == node.id)
+            .overlay(
+                // Edge target glow ring
+                isEdgeTarget ?
+                    RoundedRectangle(cornerRadius: MacbotDS.Radius.md, style: .continuous)
+                        .stroke(MacbotDS.Colors.accent.opacity(0.6), lineWidth: 2)
+                        .allowsHitTesting(false)
+                    : nil
+            )
+            .animation(Motion.snappy, value: isDragging)
+            .animation(.easeOut(duration: 0.15), value: isHovered)
             .transition(.asymmetric(
                 insertion: .scale(scale: 0.85).combined(with: .opacity),
                 removal: .scale(scale: 0.9).combined(with: .opacity)
             ))
+            .onHover { hovering in
+                viewModel.hoveredNodeId = hovering ? node.id : nil
+            }
             .onTapGesture(count: 2) {
                 viewModel.select(node.id)
                 if node.sceneData != nil {
-                    // Enter 3D interaction mode
                     viewModel.enter3DNode(id: node.id)
                 } else {
                     viewModel.editingNodeId = node.id
                 }
             }
-            // Unified drag gesture — disambiguates click vs drag by distance
             .gesture(nodeDragGesture(node: node))
             .contextMenu {
                 nodeContextMenu(node: node)
@@ -887,6 +1074,10 @@ struct CanvasView: View {
 
         Button("Chat from here") {
             viewModel.startChat(from: node.id)
+        }
+
+        Button("Add Images...") {
+            viewModel.pickAndAddImages(to: node.id)
         }
 
         // 3D viewport actions
@@ -928,6 +1119,29 @@ struct CanvasView: View {
             }
             Button("Extract Tasks") {
                 invokeAI(action: "tasks", prompt: "Extract concrete action items and next steps from these notes. Be specific and actionable:")
+            }
+        }
+
+        Menu("Orchestrate") {
+            Button("Decompose into Cards") {
+                viewModel.select(node.id)
+                invokeOrchestration(action: .decompose)
+            }
+            Button("Research & Map") {
+                viewModel.select(node.id)
+                invokeOrchestration(action: .researchMap)
+            }
+            Button("Branch Ideas") {
+                viewModel.select(node.id)
+                invokeOrchestration(action: .branchIdeas)
+            }
+            Button("Plan Steps") {
+                viewModel.select(node.id)
+                invokeOrchestration(action: .planSteps)
+            }
+            Button("Fact Sheet") {
+                viewModel.select(node.id)
+                invokeOrchestration(action: .factSheet)
             }
         }
 
@@ -983,6 +1197,11 @@ struct CanvasView: View {
         viewModel.invokeCouncil(agents: agents, prompt: prompt, orchestrator: orchestrator)
     }
 
+    private func invokeOrchestration(action: CanvasViewModel.OrchestrationAction) {
+        guard let orchestrator else { return }
+        viewModel.orchestrateAI(action: action, orchestrator: orchestrator)
+    }
+
     private func nodeDragGesture(node: CanvasNode) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
@@ -990,9 +1209,13 @@ struct CanvasView: View {
                 guard viewModel.entered3DNodeId != node.id else { return }
                 let dist = hypot(value.translation.width, value.translation.height)
                 if dist > 4 {
-                    viewModel.draggingNodeId = node.id
+                    if viewModel.draggingNodeId == nil {
+                        viewModel.draggingNodeId = node.id
+                        viewModel.beginDrag(anchorId: node.id)
+                    }
                     let newCanvas = viewModel.viewToCanvas(value.location)
-                    viewModel.moveNode(id: node.id, to: newCanvas)
+                    let snap = NSEvent.modifierFlags.contains(.shift)
+                    viewModel.moveSelectedNodes(anchorId: node.id, to: newCanvas, snap: snap)
                 }
             }
             .onEnded { value in
@@ -1273,6 +1496,13 @@ struct CanvasView: View {
             toolbarButton("arrow.up.left.and.arrow.down.right", help: "Zoom to Fit (Cmd+1)") {
                 withAnimation(Motion.smooth) { viewModel.zoomToFit() }
             }
+
+            Divider().frame(height: 18)
+
+            toolbarToggle("map", help: "Minimap (M)",
+                          isActive: viewModel.showMinimap) {
+                withAnimation(Motion.snappy) { viewModel.showMinimap.toggle() }
+            }
         }
         .padding(.horizontal, MacbotDS.Space.md)
         .padding(.vertical, MacbotDS.Space.sm)
@@ -1412,6 +1642,41 @@ struct CanvasView: View {
         .help("Add Node")
     }
 
+    /// Check the system clipboard for images. If found, add them to the selected node
+    /// or create a new node. Returns true if images were handled.
+    private func pasteImagesFromClipboard() -> Bool {
+        let pb = NSPasteboard.general
+        guard let types = pb.types else { return false }
+
+        // Check for image data on the clipboard
+        let imageTypes: [NSPasteboard.PasteboardType] = [.tiff, .png]
+        for type in imageTypes where types.contains(type) {
+            if let data = pb.data(forType: type) {
+                let center = viewModel.viewToCanvas(viewCenter)
+                viewModel.addImagesToSelection([data], at: center)
+                return true
+            }
+        }
+
+        // Check for file URLs that are images
+        if types.contains(.fileURL),
+           let urls = pb.readObjects(forClasses: [NSURL.self], options: [
+               .urlReadingContentsConformToTypes: ["public.image"]
+           ]) as? [URL] {
+            let imageData: [Data] = urls.compactMap { url in
+                guard let nsImage = NSImage(contentsOf: url) else { return nil }
+                return nsImage.tiffRepresentation
+            }
+            if !imageData.isEmpty {
+                let center = viewModel.viewToCanvas(viewCenter)
+                viewModel.addImagesToSelection(imageData, at: center)
+                return true
+            }
+        }
+
+        return false
+    }
+
     private func quickAdd(color: CanvasNode.NodeColor) {
         let center = viewModel.viewToCanvas(viewCenter)
         let jittered = CGPoint(
@@ -1425,6 +1690,8 @@ struct CanvasView: View {
 
     // MARK: - Canvas Picker
 
+    @FocusState private var canvasRenameFocused: Bool
+
     private var canvasPickerButton: some View {
         Group {
             if isRenamingCanvas {
@@ -1434,18 +1701,23 @@ struct CanvasView: View {
                         .font(MacbotDS.Typo.detail)
                         .foregroundStyle(MacbotDS.Colors.textPri)
                         .frame(width: 120)
+                        .focused($canvasRenameFocused)
+                        .onAppear { canvasRenameFocused = true }
                         .onSubmit {
                             if let id = viewModel.currentCanvasId, !canvasRenameText.isEmpty {
                                 viewModel.renameCanvas(id, title: canvasRenameText)
                             }
                             isRenamingCanvas = false
+                            canvasFocused = true
                         }
                         .onKeyPress(.escape) {
                             isRenamingCanvas = false
+                            canvasFocused = true
                             return .handled
                         }
                 }
             } else {
+                let title = viewModel.canvasList.first(where: { $0.id == viewModel.currentCanvasId })?.title ?? "Canvas"
                 Menu {
                     ForEach(viewModel.canvasList) { canvas in
                         Button(action: { viewModel.switchCanvas(canvas.id) }) {
@@ -1459,11 +1731,6 @@ struct CanvasView: View {
                     }
                     Divider()
                     Button("New Canvas") { viewModel.createCanvas() }
-                    Button("Rename Canvas") {
-                        let title = viewModel.canvasList.first(where: { $0.id == viewModel.currentCanvasId })?.title ?? ""
-                        canvasRenameText = title
-                        isRenamingCanvas = true
-                    }
                     if viewModel.canvasList.count > 1, let id = viewModel.currentCanvasId {
                         Button("Delete Canvas", role: .destructive) {
                             viewModel.deleteCanvas(id)
@@ -1477,7 +1744,6 @@ struct CanvasView: View {
                     HStack(spacing: MacbotDS.Space.xs) {
                         Image(systemName: "rectangle.on.rectangle.angled")
                             .font(.caption2)
-                        let title = viewModel.canvasList.first(where: { $0.id == viewModel.currentCanvasId })?.title ?? "Canvas"
                         Text(title)
                             .font(MacbotDS.Typo.detail)
                             .lineLimit(1)
@@ -1487,7 +1753,11 @@ struct CanvasView: View {
                     .foregroundStyle(MacbotDS.Colors.textSec)
                 }
                 .menuStyle(.borderlessButton)
-                .frame(maxWidth: 140)
+                .frame(maxWidth: 160)
+                .onTapGesture(count: 2) {
+                    canvasRenameText = title
+                    isRenamingCanvas = true
+                }
             }
         }
     }
@@ -1677,6 +1947,105 @@ struct CanvasView: View {
         }
         .buttonStyle(.plain)
         .help(help)
+    }
+
+    // MARK: - Shortcut Help Overlay
+
+    private var shortcutHelpOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+                .onTapGesture {
+                    withAnimation(Motion.snappy) { viewModel.showShortcutHelp = false }
+                }
+
+            VStack(alignment: .leading, spacing: MacbotDS.Space.lg) {
+                HStack {
+                    Text("Keyboard Shortcuts")
+                        .font(MacbotDS.Typo.title)
+                        .foregroundStyle(MacbotDS.Colors.textPri)
+                    Spacer()
+                    Button(action: {
+                        withAnimation(Motion.snappy) { viewModel.showShortcutHelp = false }
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(MacbotDS.Colors.textTer)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                HStack(alignment: .top, spacing: MacbotDS.Space.xl) {
+                    shortcutColumn("Navigation", shortcuts: [
+                        ("Space + Drag", "Pan canvas"),
+                        ("Scroll", "Pan (trackpad & mouse)"),
+                        ("Pinch / Cmd+Scroll", "Zoom toward cursor"),
+                        ("+ / -", "Zoom in / out"),
+                        ("Cmd+0", "Reset zoom"),
+                        ("Cmd+1", "Zoom to fit all"),
+                        ("Cmd+2", "Zoom to selection"),
+                        ("Tab / Shift+Tab", "Cycle nodes"),
+                        ("Arrow Keys", "Navigate to nearest node"),
+                        ("M", "Toggle minimap"),
+                    ])
+
+                    shortcutColumn("Editing", shortcuts: [
+                        ("N", "New note"),
+                        ("T", "New task"),
+                        ("R", "New reference"),
+                        ("Double-click", "Edit node / Add node"),
+                        ("Delete / Backspace", "Delete selected"),
+                        ("Cmd+D", "Duplicate"),
+                        ("Cmd+C / X / V", "Copy / Cut / Paste"),
+                        ("Cmd+Z / Shift+Z", "Undo / Redo"),
+                        ("Shift + Drag", "Snap to grid"),
+                    ])
+
+                    shortcutColumn("Selection & Tools", shortcuts: [
+                        ("Click", "Select node"),
+                        ("Cmd/Shift + Click", "Multi-select"),
+                        ("Drag empty area", "Box select"),
+                        ("Cmd+A", "Select all"),
+                        ("E", "Toggle edge mode"),
+                        ("Cmd+G", "Group selected"),
+                        ("/", "AI prompt"),
+                        ("Cmd+Return", "Execute selected"),
+                        ("Cmd+Shift+F", "Search all canvases"),
+                        ("Escape", "Dismiss / Deselect"),
+                        ("?", "This help"),
+                    ])
+                }
+            }
+            .padding(MacbotDS.Space.xl)
+            .frame(maxWidth: 720)
+            .background(MacbotDS.Mat.chrome)
+            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.lg, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: MacbotDS.Radius.lg, style: .continuous)
+                    .stroke(MacbotDS.Colors.separator, lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
+        }
+    }
+
+    private func shortcutColumn(_ title: String, shortcuts: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: MacbotDS.Space.sm) {
+            Text(title)
+                .font(MacbotDS.Typo.heading)
+                .foregroundStyle(MacbotDS.Colors.textPri)
+                .padding(.bottom, 2)
+
+            ForEach(Array(shortcuts.enumerated()), id: \.offset) { _, pair in
+                HStack(spacing: MacbotDS.Space.sm) {
+                    Text(pair.0)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(MacbotDS.Colors.accent)
+                        .frame(minWidth: 100, alignment: .trailing)
+                    Text(pair.1)
+                        .font(.system(size: 11))
+                        .foregroundStyle(MacbotDS.Colors.textSec)
+                }
+            }
+        }
     }
 }
 

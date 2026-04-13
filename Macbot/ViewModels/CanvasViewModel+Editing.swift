@@ -119,7 +119,39 @@ extension CanvasViewModel {
         nodes[idx].position = position
     }
 
+    /// Move all selected nodes by a delta from their drag-start positions.
+    func moveSelectedNodes(anchorId: UUID, to newAnchorPos: CGPoint, snap: Bool) {
+        guard let startAnchor = dragStartPositions[anchorId] else { return }
+        let dx = newAnchorPos.x - startAnchor.x
+        let dy = newAnchorPos.y - startAnchor.y
+
+        for id in selectedIds {
+            guard let startPos = dragStartPositions[id],
+                  let idx = nodes.firstIndex(where: { $0.id == id }) else { continue }
+            var target = CGPoint(x: startPos.x + dx, y: startPos.y + dy)
+            if snap {
+                let grid: CGFloat = 40
+                target.x = (target.x / grid).rounded() * grid
+                target.y = (target.y / grid).rounded() * grid
+            }
+            nodes[idx].position = target
+        }
+    }
+
+    /// Capture starting positions when drag begins.
+    func beginDrag(anchorId: UUID) {
+        if !selectedIds.contains(anchorId) {
+            selectedIds = [anchorId]
+        }
+        dragStartPositions = Dictionary(
+            uniqueKeysWithValues: nodes
+                .filter { selectedIds.contains($0.id) }
+                .map { ($0.id, $0.position) }
+        )
+    }
+
     func commitMove() {
+        dragStartPositions = [:]
         scheduleSave()
     }
 
@@ -127,6 +159,59 @@ extension CanvasViewModel {
         guard let idx = nodes.firstIndex(where: { $0.id == id }) else { return }
         nodes[idx].text = text
         scheduleSave()
+    }
+
+    // MARK: - Images
+
+    /// Append images to a node.
+    func addImages(to nodeId: UUID, images: [Data]) {
+        guard !images.isEmpty,
+              let idx = nodes.firstIndex(where: { $0.id == nodeId }) else { return }
+        pushUndo()
+        var existing = nodes[idx].images ?? []
+        existing.append(contentsOf: images)
+        nodes[idx].images = existing
+        scheduleSave()
+    }
+
+    /// Add images to the first selected node, or create a new node with the images.
+    func addImagesToSelection(_ images: [Data], at canvasPoint: CGPoint? = nil) {
+        if let targetId = selectedIds.first {
+            addImages(to: targetId, images: images)
+        } else if let point = canvasPoint {
+            pushUndo()
+            let node = CanvasNode(position: point, images: images)
+            nodes.append(node)
+            selectedIds = [node.id]
+            scheduleSave()
+        }
+    }
+
+    /// Remove a specific image from a node by index.
+    func removeImage(from nodeId: UUID, at index: Int) {
+        guard let idx = nodes.firstIndex(where: { $0.id == nodeId }),
+              var imgs = nodes[idx].images, index < imgs.count else { return }
+        pushUndo()
+        imgs.remove(at: index)
+        nodes[idx].images = imgs.isEmpty ? nil : imgs
+        scheduleSave()
+    }
+
+    /// Open an NSOpenPanel to pick image files and add them to a node.
+    @MainActor
+    func pickAndAddImages(to nodeId: UUID) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.image, .pdf]
+        panel.message = "Select images to add to this note"
+        guard panel.runModal() == .OK else { return }
+
+        let imageData: [Data] = panel.urls.compactMap { url in
+            guard let nsImage = NSImage(contentsOf: url) else { return nil }
+            return nsImage.tiffRepresentation
+        }
+        addImages(to: nodeId, images: imageData)
     }
 
     func cycleColor(id: UUID) {

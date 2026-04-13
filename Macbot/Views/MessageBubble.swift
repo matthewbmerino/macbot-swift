@@ -14,13 +14,13 @@ struct MessageBubble: View {
         VStack(alignment: .leading, spacing: MacbotDS.Space.xs) {
             // Header
             HStack(spacing: MacbotDS.Space.sm) {
-                Image(systemName: message.role == .user ? "person.circle.fill" : "cube.transparent")
-                    .font(MacbotDS.Typo.caption)
-                    .foregroundStyle(message.role == .user ? .primary : MacbotDS.Colors.accent)
+                Image(systemName: message.role == .user ? "person.circle.fill" : "cube.transparent.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(message.role == .user ? MacbotDS.Colors.textSec : MacbotDS.Colors.accent)
 
                 Text(message.role == .user ? "You" : "macbot")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(message.role == .user ? .secondary : MacbotDS.Colors.accent)
+                    .foregroundStyle(message.role == .user ? MacbotDS.Colors.textPri : MacbotDS.Colors.accent)
 
                 if let agent = message.agentCategory {
                     AgentBadge(category: agent)
@@ -30,14 +30,15 @@ struct MessageBubble: View {
 
                 // Action buttons (visible on hover)
                 if isHovering && !message.content.isEmpty {
-                    HStack(spacing: MacbotDS.Space.sm) {
-                        // Edit button (user messages only)
+                    HStack(spacing: MacbotDS.Space.xs) {
                         if message.role == .user, let onEdit {
                             Button(action: onEdit) {
                                 Image(systemName: "pencil")
                                     .font(.caption2)
-                                    .symbolRenderingMode(.hierarchical)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(MacbotDS.Colors.textTer)
+                                    .frame(width: 22, height: 22)
+                                    .background(.fill.tertiary)
+                                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                             }
                             .buttonStyle(.plain)
                             .help("Edit & resend")
@@ -46,15 +47,16 @@ struct MessageBubble: View {
                         Button(action: { copyToClipboard() }) {
                             Image(systemName: "doc.on.doc")
                                 .font(.caption2)
-                                .symbolRenderingMode(.hierarchical)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(MacbotDS.Colors.textTer)
+                                .frame(width: 22, height: 22)
+                                .background(.fill.tertiary)
+                                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .help("Copy message")
                     }
                     .transition(.opacity)
                 }
-
             }
 
             // Content
@@ -98,13 +100,22 @@ struct MessageBubble: View {
 
         }
         .padding(.horizontal, MacbotDS.Space.lg)
-        .padding(.vertical, MacbotDS.Space.sm)
+        .padding(.vertical, MacbotDS.Space.md)
         .background(
             message.role == .user
                 ? AnyShapeStyle(.fill.tertiary)
-                : AnyShapeStyle(.clear)
+                : AnyShapeStyle(.fill.quinary)
         )
         .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: MacbotDS.Radius.md, style: .continuous)
+                .stroke(
+                    message.role == .assistant
+                        ? MacbotDS.Colors.separator.opacity(0.3)
+                        : .clear,
+                    lineWidth: 0.5
+                )
+        )
         .onHover { isHovering = $0 }
         .animation(Motion.snappy, value: isHovering)
         .sheet(item: $expandedImage) { data in

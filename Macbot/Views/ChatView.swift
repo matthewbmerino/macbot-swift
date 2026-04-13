@@ -42,31 +42,40 @@ struct ChatView: View {
                     .buttonStyle(.plain)
                     .help("Show sidebar")
 
+                    Divider().frame(height: 14)
+
                     Button(action: {
                         withAnimation(Motion.snappy) {
-                            let newMode: ContentMode = viewModel.contentMode == .chat ? .canvas : .chat
-                            if newMode == .canvas {
+                            if viewModel.contentMode == .chat {
                                 viewModel.refreshCanvasChats()
                                 viewModel.setupCanvas()
+                                viewModel.contentMode = .canvas
+                            } else {
+                                viewModel.contentMode = .chat
                             }
-                            viewModel.contentMode = newMode
                         }
                     }) {
-                        Image(systemName: viewModel.contentMode == .chat
-                              ? "rectangle.on.rectangle.angled"
-                              : "bubble.left.and.text.bubble.right")
-                            .font(.caption)
-                            .foregroundStyle(viewModel.contentMode == .canvas
-                                             ? MacbotDS.Colors.accent
-                                             : MacbotDS.Colors.textSec)
+                        HStack(spacing: MacbotDS.Space.xs) {
+                            Image(systemName: viewModel.contentMode == .chat
+                                  ? "rectangle.on.rectangle.angled"
+                                  : "bubble.left.and.text.bubble.right")
+                                .font(.system(size: 10))
+                            Text(viewModel.contentMode == .chat ? "Canvas" : "Chat")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundStyle(MacbotDS.Colors.textSec)
                     }
                     .buttonStyle(.plain)
-                    .help(viewModel.contentMode == .chat ? "Canvas" : "Chat")
+                    .help(viewModel.contentMode == .chat ? "Switch to Canvas" : "Switch to Chat")
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.vertical, 7)
                 .background(MacbotDS.Mat.chrome)
                 .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
+                        .stroke(MacbotDS.Colors.separator.opacity(0.3), lineWidth: 0.5)
+                )
                 .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
                 .padding(MacbotDS.Space.sm)
                 .transition(.opacity)
@@ -95,32 +104,6 @@ struct ChatView: View {
 
                 Spacer()
 
-                Button(action: {
-                    withAnimation(Motion.snappy) {
-                        let newMode: ContentMode = viewModel.contentMode == .chat ? .canvas : .chat
-                        if newMode == .canvas {
-                            viewModel.refreshCanvasChats()
-                            viewModel.setupCanvas()
-                        }
-                        viewModel.contentMode = newMode
-                    }
-                }) {
-                    Image(systemName: viewModel.contentMode == .chat
-                          ? "rectangle.on.rectangle.angled"
-                          : "bubble.left.and.text.bubble.right")
-                        .font(.caption)
-                        .foregroundStyle(viewModel.contentMode == .canvas
-                                         ? MacbotDS.Colors.accent
-                                         : MacbotDS.Colors.textSec)
-                        .padding(6)
-                        .background(viewModel.contentMode == .canvas
-                                    ? AnyShapeStyle(MacbotDS.Colors.accent.opacity(0.12))
-                                    : AnyShapeStyle(.fill.tertiary))
-                        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .help(viewModel.contentMode == .chat ? "Canvas" : "Chat")
-
                 Button(action: { viewModel.newChat() }) {
                     Image(systemName: "square.and.pencil")
                         .font(.caption)
@@ -134,6 +117,17 @@ struct ChatView: View {
             }
             .padding(.horizontal, MacbotDS.Space.md)
             .padding(.top, MacbotDS.Space.md)
+            .padding(.bottom, MacbotDS.Space.xs)
+
+            // Mode toggle — segmented control
+            HStack(spacing: 2) {
+                modeButton("Chat", icon: "bubble.left.and.text.bubble.right", mode: .chat)
+                modeButton("Canvas", icon: "rectangle.on.rectangle.angled", mode: .canvas)
+            }
+            .padding(2)
+            .background(.fill.quaternary)
+            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+            .padding(.horizontal, MacbotDS.Space.md)
             .padding(.bottom, MacbotDS.Space.md)
 
             // Search
@@ -200,45 +194,123 @@ struct ChatView: View {
     }
 
     private var chatList: some View {
-        ScrollView {
+        let grouped = groupChatsByDate(viewModel.chats)
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(viewModel.chats) { chat in
-                    chatRow(chat)
+                ForEach(grouped, id: \.label) { group in
+                    Text(group.label)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(MacbotDS.Colors.textTer)
+                        .textCase(.uppercase)
+                        .padding(.horizontal, MacbotDS.Space.md + MacbotDS.Space.sm)
+                        .padding(.top, group.label == grouped.first?.label ? MacbotDS.Space.xs : MacbotDS.Space.md)
+                        .padding(.bottom, MacbotDS.Space.xs)
+
+                    ForEach(group.chats) { chat in
+                        chatRow(chat)
+                    }
                 }
             }
             .padding(.vertical, MacbotDS.Space.xs)
         }
     }
 
+    private struct ChatGroup {
+        let label: String
+        let chats: [ChatRecord]
+    }
+
+    private func groupChatsByDate(_ chats: [ChatRecord]) -> [ChatGroup] {
+        let cal = Calendar.current
+        let now = Date()
+        var today: [ChatRecord] = []
+        var thisWeek: [ChatRecord] = []
+        var older: [ChatRecord] = []
+
+        for chat in chats {
+            if cal.isDateInToday(chat.updatedAt) {
+                today.append(chat)
+            } else if let weekAgo = cal.date(byAdding: .day, value: -7, to: now),
+                      chat.updatedAt > weekAgo {
+                thisWeek.append(chat)
+            } else {
+                older.append(chat)
+            }
+        }
+
+        var groups: [ChatGroup] = []
+        if !today.isEmpty { groups.append(ChatGroup(label: "Today", chats: today)) }
+        if !thisWeek.isEmpty { groups.append(ChatGroup(label: "This Week", chats: thisWeek)) }
+        if !older.isEmpty { groups.append(ChatGroup(label: "Older", chats: older)) }
+        return groups
+    }
+
+    private func modeButton(_ title: String, icon: String, mode: ContentMode) -> some View {
+        let isActive = viewModel.contentMode == mode
+        return Button(action: {
+            withAnimation(Motion.snappy) {
+                if mode == .canvas {
+                    viewModel.refreshCanvasChats()
+                    viewModel.setupCanvas()
+                }
+                viewModel.contentMode = mode
+            }
+        }) {
+            HStack(spacing: MacbotDS.Space.xs) {
+                Image(systemName: icon)
+                    .font(.system(size: 10))
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(isActive ? MacbotDS.Colors.textPri : MacbotDS.Colors.textTer)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 5)
+            .background(isActive ? AnyShapeStyle(MacbotDS.Mat.chrome) : AnyShapeStyle(.clear))
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .shadow(color: isActive ? .black.opacity(0.06) : .clear, radius: 2, y: 1)
+        }
+        .buttonStyle(.plain)
+    }
+
     private func chatRow(_ chat: ChatRecord) -> some View {
         let isSelected = viewModel.currentChatId == chat.id
 
-        return VStack(alignment: .leading, spacing: MacbotDS.Space.xs) {
-            Text(chat.title)
-                .font(.caption.weight(isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? MacbotDS.Colors.textPri : MacbotDS.Colors.textSec)
-                .lineLimit(1)
+        return HStack(spacing: 0) {
+            // Active indicator bar
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(isSelected ? MacbotDS.Colors.accent : .clear)
+                .frame(width: 3)
+                .padding(.vertical, 4)
 
-            HStack {
-                Text(chat.lastMessage)
-                    .font(.caption2)
-                    .foregroundStyle(MacbotDS.Colors.textTer)
+            VStack(alignment: .leading, spacing: MacbotDS.Space.xs) {
+                Text(chat.title)
+                    .font(.caption.weight(isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? MacbotDS.Colors.textPri : MacbotDS.Colors.textSec)
                     .lineLimit(1)
-                Spacer()
-                Text(chat.updatedAt, style: .relative)
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(MacbotDS.Colors.textTer)
+
+                HStack {
+                    Text(chat.lastMessage)
+                        .font(.caption2)
+                        .foregroundStyle(MacbotDS.Colors.textTer)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(chat.updatedAt, style: .relative)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(MacbotDS.Colors.textTer)
+                }
             }
+            .padding(.horizontal, MacbotDS.Space.sm)
+            .padding(.vertical, MacbotDS.Space.sm)
         }
-        .padding(.horizontal, MacbotDS.Space.md)
-        .padding(.vertical, MacbotDS.Space.sm)
+        .padding(.leading, MacbotDS.Space.sm)
+        .padding(.trailing, MacbotDS.Space.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isSelected ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.clear))
         .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture { viewModel.selectChat(chat.id) }
         .draggable(ChatDragItem(chatId: chat.id, chatTitle: chat.title))
-        .padding(.horizontal, MacbotDS.Space.sm)
+        .padding(.horizontal, MacbotDS.Space.xs)
         .contextMenu {
             Button("Delete", role: .destructive) { viewModel.deleteChat(chat.id) }
         }
