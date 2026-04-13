@@ -26,7 +26,9 @@ struct CanvasView: View {
                 // Floating UI
                 VStack(spacing: MacbotDS.Space.sm) {
                     Spacer()
-                    if showAIBar && !viewModel.selectedIds.isEmpty {
+                    if viewModel.showCanvasChat {
+                        canvasChatBar
+                    } else if showAIBar && !viewModel.selectedIds.isEmpty {
                         canvasAIBar
                     }
                     canvasToolbar
@@ -303,7 +305,8 @@ struct CanvasView: View {
                 node: node,
                 isSelected: viewModel.selectedIds.contains(node.id),
                 isEditing: viewModel.editingNodeId == node.id,
-                isAIStreaming: viewModel.aiStreamingNodeId == node.id,
+                isAIStreaming: viewModel.aiStreamingNodeId == node.id
+                    || viewModel.activeCouncilNodeIds.contains(node.id),
                 scale: viewModel.scale,
                 onTextChange: { viewModel.updateText(id: node.id, text: $0) },
                 onCommitEdit: { viewModel.editingNodeId = nil },
@@ -333,6 +336,11 @@ struct CanvasView: View {
             viewModel.editingNodeId = node.id
         }
 
+        // Chat from this node
+        Button("Chat from here") {
+            viewModel.startChat(from: node.id)
+        }
+
         Divider()
 
         Menu("Ask macbot") {
@@ -352,6 +360,22 @@ struct CanvasView: View {
             }
             Button("Extract Tasks") {
                 invokeAI(action: "tasks", prompt: "Extract concrete action items and next steps from these notes. Be specific and actionable:")
+            }
+        }
+
+        // Agent Council
+        Menu("Agent Council") {
+            Button("All Agents") {
+                invokeCouncil(agents: AgentCategory.allCases.filter { $0 != .vision })
+            }
+            Button("General + Coder + Reasoner") {
+                invokeCouncil(agents: [.general, .coder, .reasoner])
+            }
+            Button("General + Reasoner") {
+                invokeCouncil(agents: [.general, .reasoner])
+            }
+            Button("Coder + Reasoner") {
+                invokeCouncil(agents: [.coder, .reasoner])
             }
         }
 
@@ -378,6 +402,12 @@ struct CanvasView: View {
     private func invokeAI(action: String, prompt: String) {
         guard let orchestrator else { return }
         viewModel.invokeAI(action: action, prompt: prompt, orchestrator: orchestrator)
+    }
+
+    private func invokeCouncil(agents: [AgentCategory]) {
+        guard let orchestrator else { return }
+        let prompt = "Analyze these notes and provide your unique perspective, expertise, and recommendations:"
+        viewModel.invokeCouncil(agents: agents, prompt: prompt, orchestrator: orchestrator)
     }
 
     private func nodeDragGesture(node: CanvasNode) -> some Gesture {
@@ -471,6 +501,82 @@ struct CanvasView: View {
         .overlay(Capsule().stroke(MacbotDS.Colors.accent.opacity(0.3), lineWidth: 0.5))
         .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    // MARK: - Canvas Chat Bar
+
+    private var canvasChatBar: some View {
+        VStack(spacing: MacbotDS.Space.xs) {
+            // Thread indicator
+            if let anchorId = viewModel.chatAnchorNodeId,
+               let anchor = viewModel.nodes.first(where: { $0.id == anchorId }) {
+                HStack(spacing: MacbotDS.Space.xs) {
+                    Image(systemName: "arrowshape.turn.up.left.fill")
+                        .font(.system(size: 9))
+                    Text("Replying to: \(anchor.text.prefix(40))\(anchor.text.count > 40 ? "..." : "")")
+                        .font(.system(size: 10))
+                        .lineLimit(1)
+                    Spacer()
+                    Button(action: {
+                        withAnimation(Motion.snappy) {
+                            viewModel.showCanvasChat = false
+                            viewModel.chatAnchorNodeId = nil
+                        }
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .foregroundStyle(MacbotDS.Colors.textTer)
+                .padding(.horizontal, MacbotDS.Space.md)
+            }
+
+            HStack(spacing: MacbotDS.Space.sm) {
+                Image(systemName: "bubble.left.fill")
+                    .font(.caption)
+                    .foregroundStyle(MacbotDS.Colors.accent)
+
+                TextField("Continue the conversation...", text: $viewModel.chatInputText)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(MacbotDS.Colors.textPri)
+                    .onSubmit { sendCanvasChat() }
+
+                if viewModel.isProcessingAI {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                } else {
+                    Button(action: sendCanvasChat) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(
+                                viewModel.chatInputText.trimmingCharacters(in: .whitespaces).isEmpty
+                                    ? MacbotDS.Colors.textTer.opacity(0.3)
+                                    : MacbotDS.Colors.accent
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.chatInputText.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .padding(.horizontal, MacbotDS.Space.md)
+            .padding(.vertical, MacbotDS.Space.sm)
+        }
+        .frame(maxWidth: 460)
+        .background(MacbotDS.Mat.chrome)
+        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.md, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: MacbotDS.Radius.md, style: .continuous)
+                .stroke(MacbotDS.Colors.accent.opacity(0.3), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private func sendCanvasChat() {
+        guard let orchestrator else { return }
+        viewModel.sendChatMessage(orchestrator: orchestrator)
     }
 
     // MARK: - Toolbar

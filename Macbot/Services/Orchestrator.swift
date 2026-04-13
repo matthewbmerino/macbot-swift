@@ -403,6 +403,11 @@ final class Orchestrator {
 
     // MARK: - Conversations
 
+    /// Public accessor for canvas council to get or create a conversation.
+    func getOrCreateConversation(userId: String) async -> ConversationState {
+        await getConversation(userId: userId)
+    }
+
     private func getConversation(userId: String) async -> ConversationState {
         evictStaleConversations()
 

@@ -48,6 +48,15 @@ final class CanvasViewModel {
 
     var isProcessingAI = false
     var aiStreamingNodeId: UUID?
+    /// Tracks active streaming node IDs during council (multiple simultaneous)
+    var activeCouncilNodeIds: Set<UUID> = []
+
+    // MARK: - Canvas Chat
+
+    /// The node that the canvas chat is anchored to (reply thread).
+    var chatAnchorNodeId: UUID?
+    var chatInputText: String = ""
+    var showCanvasChat: Bool = false
 
     // MARK: - Persistence
 
@@ -440,6 +449,231 @@ final class CanvasViewModel {
 
             self.isProcessingAI = false
             self.aiStreamingNodeId = nil
+            self.scheduleSave()
+        }
+    }
+
+    // MARK: - Canvas Chat (threaded conversation on canvas)
+
+    /// Start a chat thread from a node. The chat input opens anchored to that node.
+    func startChat(from nodeId: UUID) {
+        chatAnchorNodeId = nodeId
+        chatInputText = ""
+        showCanvasChat = true
+        selectedIds = [nodeId]
+    }
+
+    /// Send a message in the canvas chat. Creates a user node, then streams
+    /// an AI response into a new connected node.
+    func sendChatMessage(orchestrator: Orchestrator) {
+        let text = chatInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        guard let anchorId = chatAnchorNodeId,
+              let anchor = nodes.first(where: { $0.id == anchorId }) else { return }
+
+        chatInputText = ""
+
+        // Create user message node below the anchor
+        let userPos = CGPoint(x: anchor.position.x, y: anchor.position.y + 140)
+        let userNode = CanvasNode(
+            position: userPos,
+            text: text,
+            width: 260,
+            color: .idea,
+            source: .manual
+        )
+        nodes.append(userNode)
+        edges.append(CanvasEdge(fromId: anchorId, toId: userNode.id))
+
+        // Gather thread context by walking edges backward from anchor
+        let threadContext = gatherThreadContext(from: anchorId)
+
+        // Create AI response node
+        let aiPos = CGPoint(x: userNode.position.x, y: userNode.position.y + 140)
+        let origin = NodeSource.AIOrigin(
+            action: "chat",
+            sourceNodeIds: [userNode.id],
+            timestamp: Date()
+        )
+        let aiNode = CanvasNode(
+            position: aiPos,
+            text: "",
+            width: 300,
+            color: .ai,
+            source: .ai(origin)
+        )
+        nodes.append(aiNode)
+        edges.append(CanvasEdge(fromId: userNode.id, toId: aiNode.id))
+        aiStreamingNodeId = aiNode.id
+        chatAnchorNodeId = aiNode.id  // Next message continues from AI response
+
+        let fullPrompt = """
+        Previous conversation context:
+
+        \(threadContext)
+
+        User: \(text)
+        """
+
+        isProcessingAI = true
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var accumulated = ""
+
+            do {
+                for try await event in orchestrator.handleMessageStream(
+                    userId: "canvas-chat", message: fullPrompt
+                ) {
+                    if case .text(let chunk) = event {
+                        accumulated += chunk
+                        if let idx = self.nodes.firstIndex(where: { $0.id == aiNode.id }) {
+                            self.nodes[idx].text = accumulated
+                        }
+                    }
+                }
+            } catch {
+                if accumulated.isEmpty {
+                    accumulated = "Error: \(error.localizedDescription)"
+                    if let idx = self.nodes.firstIndex(where: { $0.id == aiNode.id }) {
+                        self.nodes[idx].text = accumulated
+                    }
+                }
+            }
+
+            self.isProcessingAI = false
+            self.aiStreamingNodeId = nil
+            self.scheduleSave()
+        }
+    }
+
+    /// Walk backward through edges to collect thread context from connected nodes.
+    private func gatherThreadContext(from nodeId: UUID, maxDepth: Int = 10) -> String {
+        var visited = Set<UUID>()
+        var chain: [CanvasNode] = []
+
+        func walkBack(_ id: UUID, depth: Int) {
+            guard depth > 0, !visited.contains(id) else { return }
+            visited.insert(id)
+            if let node = nodes.first(where: { $0.id == id }) {
+                chain.insert(node, at: 0) // prepend — oldest first
+            }
+            // Find edges pointing TO this node
+            for edge in edges where edge.toId == id {
+                walkBack(edge.fromId, depth: depth - 1)
+            }
+        }
+
+        walkBack(nodeId, depth: maxDepth)
+
+        return chain.map { node in
+            let role: String
+            switch node.source {
+            case .ai: role = "Assistant"
+            case .chat(let o) where o.role == .assistant: role = "Assistant"
+            default: role = "User"
+            }
+            return "\(role): \(node.text)"
+        }.joined(separator: "\n\n")
+    }
+
+    // MARK: - Agent Council
+
+    /// Invoke multiple agents in parallel. Each agent's response becomes a
+    /// separate node radiating from the selection centroid, creating a visual
+    /// council of perspectives.
+    func invokeCouncil(
+        agents: [AgentCategory],
+        prompt: String,
+        orchestrator: Orchestrator
+    ) {
+        let selected = nodes.filter { selectedIds.contains($0.id) }
+        guard !selected.isEmpty else { return }
+
+        let cx = selected.map(\.position.x).reduce(0, +) / CGFloat(selected.count)
+        let cy = selected.map(\.position.y).reduce(0, +) / CGFloat(selected.count)
+
+        // Build context from selected nodes
+        let context = selected.map { node in
+            let label = node.color.rawValue.uppercased()
+            return "[\(label)] \(node.text)"
+        }.joined(separator: "\n---\n")
+
+        let fullPrompt = """
+        Context from canvas notes:
+
+        \(context)
+
+        \(prompt)
+        """
+
+        // Create placeholder nodes for each agent, fanned out from the centroid
+        let angleStep = (2.0 * .pi) / Double(agents.count)
+        let radius: CGFloat = 320
+        var councilNodes: [(AgentCategory, CanvasNode)] = []
+
+        for (i, agent) in agents.enumerated() {
+            let angle = angleStep * Double(i) - .pi / 2 // start from top
+            let pos = CGPoint(
+                x: cx + radius * cos(angle),
+                y: cy + radius * sin(angle)
+            )
+            let origin = NodeSource.AIOrigin(
+                action: agent.displayName,
+                sourceNodeIds: selected.map(\.id),
+                timestamp: Date()
+            )
+            let node = CanvasNode(
+                position: pos,
+                text: "",
+                width: 280,
+                color: .ai,
+                source: .ai(origin)
+            )
+            nodes.append(node)
+            councilNodes.append((agent, node))
+            activeCouncilNodeIds.insert(node.id)
+
+            // Connect selected nodes → this council node
+            for id in selectedIds {
+                edges.append(CanvasEdge(fromId: id, toId: node.id, label: agent.displayName))
+            }
+        }
+
+        isProcessingAI = true
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            do {
+                let conv = await orchestrator.getOrCreateConversation(userId: "canvas-council")
+                let results = try await orchestrator.runParallelAgents(
+                    conv: conv,
+                    message: fullPrompt,
+                    categories: agents
+                )
+
+                for (category, response) in results {
+                    if let (_, councilNode) = councilNodes.first(where: { $0.0 == category }),
+                       let idx = self.nodes.firstIndex(where: { $0.id == councilNode.id }) {
+                        let truncated = response.count > 600
+                            ? String(response.prefix(597)) + "..."
+                            : response
+                        self.nodes[idx].text = truncated
+                        self.activeCouncilNodeIds.remove(councilNode.id)
+                    }
+                }
+            } catch {
+                for (_, councilNode) in councilNodes {
+                    if let idx = self.nodes.firstIndex(where: { $0.id == councilNode.id }),
+                       self.nodes[idx].text.isEmpty {
+                        self.nodes[idx].text = "Error: \(error.localizedDescription)"
+                    }
+                    self.activeCouncilNodeIds.remove(councilNode.id)
+                }
+            }
+
+            self.isProcessingAI = false
             self.scheduleSave()
         }
     }
