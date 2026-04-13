@@ -49,6 +49,21 @@ struct MacbotApp: App {
         Settings {
             SettingsView()
         }
+        .commands {
+            CommandGroup(after: .toolbar) {
+                Button("Toggle Overlay") { OverlayController.shared.toggle() }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                Button("Open Director") {
+                    DirectorLauncher.shared.launch(task: "")
+                    if let action = DirectorLauncher.shared.openWindowAction {
+                        action("director")
+                    }
+                }
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
+                Button("Toggle Companion") { CompanionController.shared.toggle() }
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
+            }
+        }
     }
 }
 

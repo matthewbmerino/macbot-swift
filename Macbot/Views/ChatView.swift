@@ -2,18 +2,6 @@ import SwiftUI
 import MarkdownUI
 import UniformTypeIdentifiers
 
-// MARK: - Design System (Apple-native)
-
-private enum DS {
-    static let bg = Color(nsColor: .windowBackgroundColor)
-    static let surface = Color(nsColor: .controlBackgroundColor)
-    static let separator = Color(nsColor: .separatorColor)
-    static let textPrimary = Color.primary
-    static let textSecondary = Color.secondary
-    static let textTertiary = Color(nsColor: .tertiaryLabelColor)
-    static let cornerRadius: CGFloat = 16
-}
-
 struct ChatView: View {
     @Bindable var viewModel: ChatViewModel
     @FocusState private var inputFocused: Bool
@@ -29,7 +17,7 @@ struct ChatView: View {
 
             chatContent
         }
-        .background(DS.bg)
+        .background(MacbotDS.Colors.bg)
         .frame(minWidth: 700, minHeight: 520)
         .onAppear { inputFocused = true }
     }
@@ -39,57 +27,57 @@ struct ChatView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
-            HStack(spacing: 8) {
+            HStack(spacing: MacbotDS.Space.sm) {
                 Image(systemName: "cube.transparent")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
 
                 Text("macbot")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(DS.textPrimary)
+                    .foregroundStyle(MacbotDS.Colors.textPri)
 
                 Spacer()
 
                 Button(action: { viewModel.newChat() }) {
                     Image(systemName: "square.and.pencil")
                         .font(.caption)
-                        .foregroundStyle(DS.textSecondary)
+                        .foregroundStyle(MacbotDS.Colors.textSec)
                         .padding(6)
                         .background(.fill.tertiary)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .help("New Chat")
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
+            .padding(.horizontal, MacbotDS.Space.md)
+            .padding(.top, MacbotDS.Space.md)
+            .padding(.bottom, MacbotDS.Space.md)
 
             // Search
-            HStack(spacing: 8) {
+            HStack(spacing: MacbotDS.Space.sm) {
                 Image(systemName: "magnifyingglass")
                     .font(.caption2)
-                    .foregroundStyle(DS.textTertiary)
+                    .foregroundStyle(MacbotDS.Colors.textTer)
                 TextField("Search...", text: $viewModel.searchQuery)
                     .textFieldStyle(.plain)
                     .font(.caption)
-                    .foregroundStyle(DS.textPrimary)
+                    .foregroundStyle(MacbotDS.Colors.textPri)
                     .onChange(of: viewModel.searchQuery) { _, _ in viewModel.search() }
                 if !viewModel.searchQuery.isEmpty {
                     Button(action: { viewModel.clearSearch() }) {
                         Image(systemName: "xmark.circle.fill")
                             .font(.caption2)
-                            .foregroundStyle(DS.textTertiary)
+                            .foregroundStyle(MacbotDS.Colors.textTer)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, MacbotDS.Space.md)
+            .padding(.vertical, MacbotDS.Space.sm)
             .background(.fill.quaternary)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
+            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+            .padding(.horizontal, MacbotDS.Space.md)
+            .padding(.bottom, MacbotDS.Space.md)
 
             // Chat list
             if viewModel.isSearching {
@@ -101,31 +89,31 @@ struct ChatView: View {
             Spacer(minLength: 0)
 
             // Status bar
-            HStack(spacing: 8) {
+            HStack(spacing: MacbotDS.Space.sm) {
                 // Live indicator
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.caption2)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(MacbotDS.Colors.success)
                     .symbolEffect(.pulse, isActive: true)
 
                 Text(viewModel.isStreaming ? "Thinking..." : "On-Device")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(viewModel.isStreaming ? .orange : .green)
+                    .font(MacbotDS.Typo.detail)
+                    .foregroundStyle(viewModel.isStreaming ? MacbotDS.Colors.warning : MacbotDS.Colors.success)
 
                 Spacer()
 
                 Text(viewModel.activeAgent.displayName)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(DS.textTertiary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .font(MacbotDS.Typo.detail)
+                    .foregroundStyle(MacbotDS.Colors.textTer)
+                    .padding(.horizontal, MacbotDS.Space.sm)
+                    .padding(.vertical, MacbotDS.Space.xs)
                     .background(.fill.tertiary)
                     .clipShape(Capsule())
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, MacbotDS.Space.md)
+            .padding(.vertical, MacbotDS.Space.md)
         }
-        .background(.regularMaterial)
+        .background(MacbotDS.Mat.chrome)
     }
 
     private var chatList: some View {
@@ -135,7 +123,7 @@ struct ChatView: View {
                     chatRow(chat)
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, MacbotDS.Space.xs)
         }
     }
 
@@ -143,32 +131,32 @@ struct ChatView: View {
         let isSelected = viewModel.currentChatId == chat.id
 
         return Button(action: { viewModel.selectChat(chat.id) }) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: MacbotDS.Space.xs) {
                 Text(chat.title)
                     .font(.caption.weight(isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? DS.textPrimary : DS.textSecondary)
+                    .foregroundStyle(isSelected ? MacbotDS.Colors.textPri : MacbotDS.Colors.textSec)
                     .lineLimit(1)
 
                 HStack {
                     Text(chat.lastMessage)
                         .font(.caption2)
-                        .foregroundStyle(DS.textTertiary)
+                        .foregroundStyle(MacbotDS.Colors.textTer)
                         .lineLimit(1)
                     Spacer()
                     Text(chat.updatedAt, style: .relative)
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(DS.textTertiary)
+                        .foregroundStyle(MacbotDS.Colors.textTer)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, MacbotDS.Space.md)
+            .padding(.vertical, MacbotDS.Space.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(isSelected ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.clear))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, MacbotDS.Space.sm)
         .contextMenu {
             Button("Delete", role: .destructive) { viewModel.deleteChat(chat.id) }
         }
@@ -179,32 +167,32 @@ struct ChatView: View {
             if viewModel.searchResults.isEmpty {
                 Text("No results")
                     .font(.caption)
-                    .foregroundStyle(DS.textTertiary)
+                    .foregroundStyle(MacbotDS.Colors.textTer)
                     .padding()
             } else {
-                LazyVStack(alignment: .leading, spacing: 4) {
+                LazyVStack(alignment: .leading, spacing: MacbotDS.Space.xs) {
                     ForEach(Array(viewModel.searchResults.enumerated()), id: \.offset) { _, result in
                         Button(action: { viewModel.selectChat(result.message.chatId) }) {
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: MacbotDS.Space.xs) {
                                 Text(result.chatTitle)
                                     .font(.caption.weight(.medium))
-                                    .foregroundStyle(DS.textPrimary)
+                                    .foregroundStyle(MacbotDS.Colors.textPri)
                                     .lineLimit(1)
                                 Text(result.message.content)
                                     .font(.caption2)
-                                    .foregroundStyle(DS.textTertiary)
+                                    .foregroundStyle(MacbotDS.Colors.textTer)
                                     .lineLimit(2)
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, MacbotDS.Space.md)
+                            .padding(.vertical, MacbotDS.Space.sm)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, MacbotDS.Space.sm)
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, MacbotDS.Space.xs)
             }
         }
     }
@@ -221,18 +209,29 @@ struct ChatView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .containerRelativeFrame(.vertical) { height, _ in height }
                     } else {
-                        LazyVStack(alignment: .leading, spacing: 4) {
+                        LazyVStack(alignment: .leading, spacing: MacbotDS.Space.sm) {
                             ForEach(viewModel.messages) { msg in
-                                MessageBubble(message: msg) {
-                                    viewModel.startEditing(message: msg)
-                                    inputFocused = true
-                                }
+                                let isLastAndStreaming = viewModel.isStreaming
+                                    && msg.id == viewModel.messages.last?.id
+                                    && msg.role == .assistant
+                                MessageBubble(
+                                    message: msg,
+                                    onEdit: {
+                                        viewModel.startEditing(message: msg)
+                                        inputFocused = true
+                                    },
+                                    isStreaming: isLastAndStreaming
+                                )
                                 .id(msg.id)
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .offset(y: 8)),
+                                    removal: .opacity
+                                ))
                             }
 
                             if let status = viewModel.currentStatus {
                                 StatusIndicator(text: status)
-                                    .padding(.horizontal, 20)
+                                    .padding(.horizontal, MacbotDS.Space.lg)
                                     .id("status")
                             }
 
@@ -244,11 +243,11 @@ struct ChatView: View {
                             // Spacer for floating input
                             Color.clear.frame(height: 80)
                         }
-                        .padding(.vertical, 8)
+                        .padding(.vertical, MacbotDS.Space.sm)
                     }
                 }
                 .onChange(of: viewModel.messages.count) {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    withAnimation(Motion.snappy) {
                         if let lastId = viewModel.messages.last?.id {
                             proxy.scrollTo(lastId, anchor: .bottom)
                         }
@@ -257,7 +256,7 @@ struct ChatView: View {
             }
 
             // Activity terminal + floating input
-            VStack(spacing: 8) {
+            VStack(spacing: MacbotDS.Space.sm) {
                 ActivityTerminal()
 
                 if !viewModel.pendingImages.isEmpty {
@@ -266,31 +265,31 @@ struct ChatView: View {
 
                 floatingInputBar
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 16)
+            .padding(.horizontal, MacbotDS.Space.lg)
+            .padding(.bottom, MacbotDS.Space.md)
         }
-        .background(DS.bg)
+        .background(MacbotDS.Colors.bg)
         .onDrop(of: [.image, .fileURL], isTargeted: $dragOver) { providers in
             handleDrop(providers: providers)
             return true
         }
         .overlay {
             if dragOver {
-                RoundedRectangle(cornerRadius: DS.cornerRadius, style: .continuous)
-                    .stroke(Color.accentColor.opacity(0.5), lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: MacbotDS.Radius.lg, style: .continuous)
+                    .stroke(MacbotDS.Colors.accent.opacity(0.5), lineWidth: 1.5)
                     .background(.ultraThinMaterial.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: DS.cornerRadius, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.lg, style: .continuous))
                     .overlay {
-                        VStack(spacing: 8) {
+                        VStack(spacing: MacbotDS.Space.sm) {
                             Image(systemName: "photo.badge.plus")
                                 .font(.system(size: 28, weight: .light))
                                 .symbolRenderingMode(.hierarchical)
                             Text("Drop image to analyze")
                                 .font(.subheadline.weight(.medium))
                         }
-                        .foregroundStyle(Color.accentColor.opacity(0.8))
+                        .foregroundStyle(MacbotDS.Colors.accent.opacity(0.8))
                     }
-                    .padding(4)
+                    .padding(MacbotDS.Space.xs)
             }
         }
     }
@@ -298,7 +297,7 @@ struct ChatView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: MacbotDS.Space.lg) {
             Spacer()
 
             ZStack {
@@ -307,17 +306,17 @@ struct ChatView: View {
                     .frame(width: 80, height: 80)
                 Image(systemName: "cube.transparent")
                     .font(.system(size: 40, weight: .ultraLight))
-                    .foregroundStyle(DS.textTertiary)
+                    .foregroundStyle(MacbotDS.Colors.textTer)
                     .symbolRenderingMode(.hierarchical)
             }
 
             Text("What can I help with?")
-                .font(.title3.weight(.medium))
-                .foregroundStyle(DS.textSecondary)
+                .font(MacbotDS.Typo.title)
+                .foregroundStyle(MacbotDS.Colors.textSec)
 
             Text("All processing happens on this Mac.\nNothing leaves your network.")
                 .font(.subheadline)
-                .foregroundStyle(DS.textTertiary)
+                .foregroundStyle(MacbotDS.Colors.textTer)
                 .multilineTextAlignment(.center)
 
             Spacer()
@@ -331,15 +330,15 @@ struct ChatView: View {
 
     private var typingIndicator: some View {
         TypingDots()
-            .padding(.horizontal, 20)
-            .padding(.vertical, 8)
+            .padding(.horizontal, MacbotDS.Space.lg)
+            .padding(.vertical, MacbotDS.Space.sm)
     }
 
     // MARK: - Image Preview
 
     private var imagePreview: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: MacbotDS.Space.sm) {
                 ForEach(Array(viewModel.pendingImages.enumerated()), id: \.offset) { idx, data in
                     if let nsImage = NSImage(data: data) {
                         ZStack(alignment: .topTrailing) {
@@ -347,14 +346,14 @@ struct ChatView: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                                 .frame(width: 52, height: 52)
-                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(DS.separator, lineWidth: 0.5))
+                                .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous).stroke(MacbotDS.Colors.separator, lineWidth: 0.5))
 
                             Button(action: { viewModel.pendingImages.remove(at: idx) }) {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                    .background(Circle().fill(.ultraThinMaterial))
+                                    .background(Circle().fill(MacbotDS.Mat.float))
                             }
                             .buttonStyle(.plain)
                             .offset(x: 4, y: -4)
@@ -362,45 +361,45 @@ struct ChatView: View {
                     }
                 }
             }
-            .padding(.horizontal, 4)
-            .padding(.bottom, 8)
+            .padding(.horizontal, MacbotDS.Space.xs)
+            .padding(.bottom, MacbotDS.Space.sm)
         }
     }
 
     // MARK: - Floating Input Bar
 
     private var floatingInputBar: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: MacbotDS.Space.sm) {
             // Editing indicator
             if viewModel.editingMessageId != nil {
-                HStack(spacing: 8) {
+                HStack(spacing: MacbotDS.Space.sm) {
                     Image(systemName: "pencil.circle.fill")
                         .font(.caption)
-                        .tint(.orange)
-                        .foregroundStyle(.orange)
+                        .tint(MacbotDS.Colors.warning)
+                        .foregroundStyle(MacbotDS.Colors.warning)
                     Text("Editing message — press Enter to resend")
                         .font(.caption2)
-                        .foregroundStyle(DS.textSecondary)
+                        .foregroundStyle(MacbotDS.Colors.textSec)
                     Spacer()
                     Button("Cancel") {
                         viewModel.editingMessageId = nil
                         viewModel.inputText = ""
                     }
                     .font(.caption2)
-                    .foregroundStyle(DS.textTertiary)
+                    .foregroundStyle(MacbotDS.Colors.textTer)
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, MacbotDS.Space.md)
+                .padding(.vertical, MacbotDS.Space.sm)
                 .background(.fill.tertiary)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.md, style: .continuous))
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: MacbotDS.Space.md) {
                 Button(action: { pickImage() }) {
                     Image(systemName: "paperclip")
                         .font(.subheadline)
-                        .foregroundStyle(DS.textTertiary)
+                        .foregroundStyle(MacbotDS.Colors.textTer)
                 }
                 .buttonStyle(.plain)
                 .help("Attach image")
@@ -412,7 +411,7 @@ struct ChatView: View {
                 )
                 .textFieldStyle(.plain)
                 .font(.subheadline)
-                .foregroundStyle(DS.textPrimary)
+                .foregroundStyle(MacbotDS.Colors.textPri)
                 .lineLimit(1...6)
                 .focused($inputFocused)
                 .onSubmit { sendMessage() }
@@ -423,7 +422,7 @@ struct ChatView: View {
                         Image(systemName: "stop.circle.fill")
                             .font(.title2)
                             .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(MacbotDS.Colors.warning)
                     }
                     .buttonStyle(.plain)
                     .help("Stop generating")
@@ -435,19 +434,19 @@ struct ChatView: View {
                               ? "arrow.counterclockwise.circle.fill"
                               : "arrow.up.circle.fill")
                             .font(.title2)
-                            .foregroundStyle(canSend ? Color.accentColor : DS.textTertiary.opacity(0.3))
+                            .foregroundStyle(canSend ? MacbotDS.Colors.accent : MacbotDS.Colors.textTer.opacity(0.3))
                     }
                     .disabled(!canSend)
                     .buttonStyle(.plain)
                     .keyboardShortcut(.return, modifiers: [])
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(.regularMaterial)
+            .padding(.horizontal, MacbotDS.Space.md)
+            .padding(.vertical, MacbotDS.Space.md)
+            .background(MacbotDS.Mat.chrome)
             .clipShape(Capsule())
             .overlay(Capsule().stroke(
-                viewModel.editingMessageId != nil ? .orange.opacity(0.3) : DS.separator,
+                viewModel.editingMessageId != nil ? MacbotDS.Colors.warning.opacity(0.3) : MacbotDS.Colors.separator,
                 lineWidth: 0.5
             ))
             .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
@@ -504,10 +503,10 @@ struct AgentBadge: View {
 
     var body: some View {
         Text(category.displayName)
-            .font(.caption2.weight(.medium))
+            .font(MacbotDS.Typo.detail)
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, MacbotDS.Space.sm)
+            .padding(.vertical, MacbotDS.Space.xs)
             .background(.fill.tertiary)
             .clipShape(Capsule())
     }
@@ -527,7 +526,7 @@ private struct TypingDots: View {
                     .frame(width: 6, height: 6)
                     .opacity(phase == i ? 0.9 : 0.25)
                     .scaleEffect(phase == i ? 1.15 : 1.0)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: phase)
+                    .animation(Motion.gentle, value: phase)
             }
         }
         .onReceive(timer) { _ in

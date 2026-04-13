@@ -18,6 +18,8 @@ struct CompanionView: View {
     @State private var wavePhase: Double = 0
     @State private var errorPulse = false
     @State private var showBubble = false
+    @State private var cursorDistance: CGFloat = 1.0
+    @State private var cursorAngle: CGFloat = 0.0
 
     @FocusState private var chatFocused: Bool
 
@@ -38,6 +40,12 @@ struct CompanionView: View {
             // The orb
             orbBody
                 .onTapGesture { viewModel.interact() }
+                .onHover { hovering in
+                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
+                .help("Click to chat with macbot")
+                .accessibilityLabel("macbot companion")
+                .accessibilityHint("Click to open chat")
 
             // Chat panel — slides down from the orb
             if viewModel.isChatOpen {
@@ -66,66 +74,43 @@ struct CompanionView: View {
     // MARK: - The Orb
 
     private var orbBody: some View {
-        ZStack {
-            // Ambient glow — large, soft, barely there
+        let shaderSize = orbSize * 2  // shader quad needs room for the outer glow
+        return ZStack {
+            // Ambient glow — large, soft, barely there (view-level, not shader)
             Circle()
                 .fill(moodGradient.opacity(0.12))
                 .frame(width: orbSize * 2, height: orbSize * 2)
                 .blur(radius: 28)
                 .scaleEffect(breatheScale * 1.1)
 
-            // Mid glow ring
+            // Mid glow ring (view-level ambient light)
             Circle()
                 .fill(moodGradient.opacity(breatheOpacity * 0.2))
                 .frame(width: orbSize + 24, height: orbSize + 24)
                 .blur(radius: 14)
 
-            // Main orb body — frosted glass with mesh gradient feel
-            Circle()
-                .fill(
-                    AngularGradient(
-                        colors: moodColors,
-                        center: .center,
-                        startAngle: .degrees(rotationAngle),
-                        endAngle: .degrees(rotationAngle + 360)
-                    )
-                )
-                .frame(width: orbSize, height: orbSize)
-                // Blur AFTER clip so the softness stays inside the circle
-                .blur(radius: 8)
-                // Re-clip to a slightly larger circle to contain the blur
-                .clipShape(Circle().inset(by: -4))
-                .frame(width: orbSize, height: orbSize)
-                .overlay(
-                    // Inner sphere highlight — top-left light source
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [.white.opacity(0.35), .clear],
-                                center: .init(x: 0.35, y: 0.3),
-                                startRadius: 0,
-                                endRadius: orbSize * 0.45
-                            )
-                        )
-                )
-                .overlay(
-                    // Glass rim
-                    Circle()
-                        .stroke(
-                            LinearGradient(
-                                colors: [.white.opacity(0.4), .white.opacity(0.05)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 0.75
-                        )
-                )
-                .shadow(color: moodPrimary.opacity(0.3), radius: 12, y: 4)
-                .scaleEffect(breatheScale)
-
-            // Thinking: orbiting particle
-            if viewModel.mood == .thinking {
-                orbitingParticle
+            // Metal SDF orb — the hero visual
+            OrbShaderView(
+                mood: viewModel.mood,
+                cursorDistance: cursorDistance,
+                cursorAngle: cursorAngle,
+                size: shaderSize
+            )
+            .shadow(color: moodPrimary.opacity(0.3), radius: 12, y: 4)
+            .scaleEffect(breatheScale)
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    let center = CGPoint(x: shaderSize / 2, y: shaderSize / 2)
+                    let dx = Float(location.x - center.x)
+                    let dy = Float(location.y - center.y)
+                    cursorDistance = CGFloat(min(sqrt(dx * dx + dy * dy) / Float(shaderSize * 0.5), 1.0))
+                    cursorAngle = CGFloat(atan2(dy, dx))
+                case .ended:
+                    withAnimation(.easeOut(duration: 0.4)) {
+                        cursorDistance = 1.0
+                    }
+                }
             }
 
             // Error: ripple ring
@@ -137,15 +122,6 @@ struct CompanionView: View {
                     .opacity(errorPulse ? 0 : 1)
             }
         }
-    }
-
-    private var orbitingParticle: some View {
-        Circle()
-            .fill(.white.opacity(0.8))
-            .frame(width: 4, height: 4)
-            .offset(x: orbSize * 0.42)
-            .rotationEffect(.degrees(rotationAngle * 2))
-            .blur(radius: 0.5)
     }
 
     // MARK: - Suggestion Card
@@ -177,6 +153,19 @@ struct CompanionView: View {
 
     private var chatPanel: some View {
         VStack(spacing: 0) {
+            // Close button — top-right
+            HStack {
+                Spacer()
+                Button(action: { viewModel.closeChat() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Close chat")
+            }
+            .padding(.bottom, 4)
+
             // Context strip — minimal, monospaced
             if !viewModel.currentContext.isEmpty {
                 contextStrip
@@ -224,6 +213,7 @@ struct CompanionView: View {
                 .stroke(.white.opacity(0.06), lineWidth: 0.5)
         )
         .onAppear { chatFocused = true }
+        .onExitCommand { viewModel.closeChat() }
     }
 
     private var contextStrip: some View {
@@ -310,10 +300,6 @@ struct CompanionView: View {
         }
     }
 
-    private var moodColors: [Color] {
-        [moodPrimary, moodSecondary, moodPrimary.opacity(0.7), moodSecondary.opacity(0.8)]
-    }
-
     private var moodGradient: RadialGradient {
         RadialGradient(
             colors: [moodPrimary, moodSecondary.opacity(0.5)],
@@ -326,11 +312,11 @@ struct CompanionView: View {
     // MARK: - Animations
 
     private func startAnimations() {
-        // Breathing — subtle scale + opacity
-        withAnimation(.easeInOut(duration: 3.5).repeatForever(autoreverses: true)) {
+        // Breathing — phase-offset springs so scale & opacity never lock in sync
+        withAnimation(Motion.gentle.repeatForever(autoreverses: true)) {
             breatheScale = 1.04
         }
-        withAnimation(.easeInOut(duration: 4.0).repeatForever(autoreverses: true)) {
+        withAnimation(Motion.gentle.speed(0.85).repeatForever(autoreverses: true)) {
             breatheOpacity = 0.7
         }
         // Slow color rotation — the orb is always subtly alive
@@ -348,9 +334,9 @@ struct CompanionView: View {
             }
         }
 
-        // Excited: gentle bounce
+        // Excited: bouncy overshoot
         if mood == .excited {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.45).repeatCount(3)) {
+            withAnimation(Motion.lively.repeatCount(3)) {
                 breatheScale = 1.12
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {

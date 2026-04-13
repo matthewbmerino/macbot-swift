@@ -226,10 +226,10 @@ final class CompanionViewModel {
 
     private func startContextLoop() {
         contextTimer?.invalidate()
-        // Fast loop: cursor position updates need to feel instant.
-        // The timer fires every 0.25s for cursor + app context.
-        // Heavier checks (clipboard, battery) run on a modulo cadence.
-        contextTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        // 0.5s timer for cursor + app context (2Hz feels responsive).
+        // Heavier checks (clipboard, battery, AX window title) run on
+        // a modulo cadence (~every 5s) to avoid blocking the main thread.
+        contextTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.checkContext()
             }
@@ -238,21 +238,24 @@ final class CompanionViewModel {
         checkContext()
     }
 
+    /// Cached window title — updated on the slow path to avoid
+    /// blocking the main thread with AX IPC calls on every tick.
+    private var cachedWindowTitle: String = ""
+
     private func checkContext() {
         guard isVisible else { return }
 
         // ── Fast path (every tick, ~0.25s) ──
-        // Cursor + frontmost app + window title — zero await, instant.
+        // Cursor + frontmost app only — zero IPC, instant.
         let cursorPos = NSEvent.mouseLocation
         let frontApp = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
-        let windowTitle = Self.focusedWindowTitle() ?? ""
 
         // Build context string — fast fields only on most ticks
         var contextParts: [String] = []
         if !frontApp.isEmpty {
             var appLine = frontApp
-            if !windowTitle.isEmpty {
-                appLine += " — \(String(windowTitle.prefix(60)))"
+            if !cachedWindowTitle.isEmpty {
+                appLine += " — \(String(cachedWindowTitle.prefix(60)))"
             }
             contextParts.append(appLine)
         }
@@ -276,17 +279,24 @@ final class CompanionViewModel {
             }
         }
 
-        // Window title tracking
-        if !windowTitle.isEmpty && windowTitle != lastWindowTitle {
-            lastWindowTitle = windowTitle
-        }
+        // Window title tracking is on the slow path (AX calls are expensive)
 
         // ── Slow path (every ~5s = every 20 ticks at 0.25s) ──
         slowTickCounter += 1
-        let isSlowTick = slowTickCounter % 20 == 0
+        let isSlowTick = slowTickCounter % 10 == 0  // every ~5s at 0.5s ticks
 
         if isSlowTick {
             Task {
+                // Window title via AX — runs off main thread to avoid
+                // blocking UI. AX IPC can take 10-200ms per call.
+                let title = await Task.detached {
+                    Self.focusedWindowTitle() ?? ""
+                }.value
+                self.cachedWindowTitle = title
+                if !title.isEmpty && title != self.lastWindowTitle {
+                    self.lastWindowTitle = title
+                }
+
                 let snapshot = await AmbientMonitor.shared.current()
 
                 // Append slow-path context
@@ -351,7 +361,9 @@ final class CompanionViewModel {
 
     /// Read the focused window's title via Accessibility API.
     /// Returns nil if Accessibility permission isn't granted.
-    private static func focusedWindowTitle() -> String? {
+    /// Marked nonisolated so it can run off the main thread — AX IPC
+    /// doesn't require the main thread and can take 10-200ms.
+    nonisolated private static func focusedWindowTitle() -> String? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
 

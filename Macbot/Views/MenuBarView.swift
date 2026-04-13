@@ -6,15 +6,15 @@ struct MenuBarView: View {
     private var monitor: SystemMonitor { SystemMonitor.shared }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 0) {
             // Header
-            HStack(spacing: 8) {
+            HStack(spacing: MacbotDS.Space.sm) {
                 Image(systemName: "cube.transparent")
-                    .font(.subheadline.weight(.semibold))
+                    .font(MacbotDS.Typo.heading)
                     .foregroundStyle(.primary)
 
                 Text("macbot")
-                    .font(.subheadline.weight(.semibold))
+                    .font(MacbotDS.Typo.heading)
                     .foregroundStyle(.primary)
 
                 Spacer()
@@ -22,29 +22,32 @@ struct MenuBarView: View {
                 // Live on-device indicator
                 LiveIndicator()
             }
+            .padding(.bottom, MacbotDS.Space.md)
 
             // Gauges — isolated in child view so monitor updates don't re-render the full popover
             SystemGaugesView()
-                .padding(.vertical, 4)
+                .padding(.vertical, MacbotDS.Space.xs)
 
             Divider()
+                .padding(.vertical, MacbotDS.Space.sm)
 
             // Last message preview (fixed height to prevent layout shifts)
             Text(lastMessagePreview)
-                .font(.caption)
+                .font(MacbotDS.Typo.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
 
             Divider()
+                .padding(.vertical, MacbotDS.Space.sm)
 
             // Quick input capsule
-            HStack(spacing: 8) {
+            HStack(spacing: MacbotDS.Space.sm) {
                 TextField("Quick message...", text: $viewModel.inputText)
                     .textFieldStyle(.plain)
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .font(MacbotDS.Typo.caption)
+                    .padding(.horizontal, MacbotDS.Space.md)
+                    .padding(.vertical, MacbotDS.Space.sm)
                     .background(.fill.quaternary)
                     .clipShape(Capsule())
                     .onSubmit { viewModel.send() }
@@ -57,20 +60,22 @@ struct MenuBarView: View {
             }
 
             Divider()
+                .padding(.vertical, MacbotDS.Space.sm)
 
             // Quick actions grid
             FeatureButtonsGrid(openWindow: openWindow, viewModel: viewModel)
 
             Divider()
+                .padding(.vertical, MacbotDS.Space.sm)
 
             // Footer
             HStack {
                 Button(action: { openWindow(id: "main") }) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: MacbotDS.Space.xs) {
                         Image(systemName: "macwindow")
                             .font(.caption2)
                         Text("Open Chat")
-                            .font(.caption2.weight(.medium))
+                            .font(MacbotDS.Typo.detail)
                     }
                 }
                 .buttonStyle(.bordered)
@@ -79,18 +84,18 @@ struct MenuBarView: View {
                 Spacer()
 
                 Text(viewModel.activeAgent.displayName)
-                    .font(.caption2.weight(.medium))
+                    .font(MacbotDS.Typo.detail)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, MacbotDS.Space.sm)
+                    .padding(.vertical, MacbotDS.Space.xs)
                     .background(.fill.tertiary)
                     .clipShape(Capsule())
             }
         }
-        .padding(16)
+        .padding(MacbotDS.Space.md)
         .frame(width: 300)
         .fixedSize(horizontal: false, vertical: true)
-        .background(.ultraThinMaterial)
+        .background(MacbotDS.Mat.float)
         .transaction { $0.animation = nil }  // Kill all implicit animations on this tree
         .onAppear {
             monitor.addObserver()
@@ -115,7 +120,7 @@ private struct FeatureButtonsGrid: View {
     let viewModel: ChatViewModel
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: MacbotDS.Space.sm) {
             featureButton(
                 icon: "film",
                 label: "Director",
@@ -163,6 +168,7 @@ private struct FeatureButtonsGrid: View {
                     }
                 }
             }
+            .help("Automate your desktop — type a task after /ghost")
         }
     }
 
@@ -186,9 +192,9 @@ private struct FeatureButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 6) {
+            VStack(spacing: MacbotDS.Space.sm) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
                         .fill(.fill.tertiary)
                         .frame(width: 40, height: 40)
 
@@ -199,16 +205,16 @@ private struct FeatureButton: View {
                 }
 
                 Text(label)
-                    .font(.caption2.weight(.medium))
+                    .font(MacbotDS.Typo.detail)
                     .foregroundStyle(.secondary)
             }
-            .padding(.vertical, 6)
+            .padding(.vertical, MacbotDS.Space.sm)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
                     .fill(isHovering ? Color.primary.opacity(0.06) : .clear)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
         }
         .buttonStyle(.plain)
         .scaleEffect(isPressed ? 0.93 : 1.0)
@@ -218,8 +224,8 @@ private struct FeatureButton: View {
                 .onChanged { _ in isPressed = true }
                 .onEnded { _ in isPressed = false }
         )
-        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isHovering)
-        .animation(.spring(response: 0.2, dampingFraction: 0.75), value: isPressed)
+        .animation(Motion.snappy, value: isHovering)
+        .animation(Motion.snappy, value: isPressed)
     }
 }
 
@@ -234,15 +240,15 @@ private struct LiveIndicator: View {
             let seconds = timeline.date.timeIntervalSinceReferenceDate
             let opacity = 0.4 + 0.6 * (0.5 + 0.5 * sin(seconds * 2.0))
 
-            HStack(spacing: 4) {
+            HStack(spacing: MacbotDS.Space.xs) {
                 Image(systemName: "dot.radiowaves.left.and.right")
                     .font(.caption2)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(MacbotDS.Colors.success)
                     .opacity(opacity)
 
                 Text("On-Device")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.green)
+                    .font(MacbotDS.Typo.detail)
+                    .foregroundStyle(MacbotDS.Colors.success)
             }
         }
     }
@@ -256,8 +262,8 @@ private struct SystemGaugesView: View {
     private var monitor: SystemMonitor { SystemMonitor.shared }
 
     var body: some View {
-        HStack(spacing: 12) {
-            circularGauge(label: "CPU", value: monitor.cpuUsage, color: .cyan)
+        HStack(spacing: MacbotDS.Space.md) {
+            circularGauge(label: "CPU", value: monitor.cpuUsage, color: MacbotDS.Colors.info)
             circularGauge(
                 label: "MEM", value: monitor.memoryUsage, color: memoryColor,
                 subLabel: "\(String(format: "%.1f", monitor.memoryUsedGB)) / \(Int(monitor.memoryTotalGB))GB"
@@ -269,7 +275,7 @@ private struct SystemGaugesView: View {
     private func circularGauge(
         label: String, value: Double, color: Color, subLabel: String? = nil
     ) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: MacbotDS.Space.xs) {
             ZStack {
                 Circle()
                     .stroke(color.opacity(0.15), style: StrokeStyle(lineWidth: 3, lineCap: .round))
@@ -294,7 +300,7 @@ private struct SystemGaugesView: View {
 
             if let subLabel {
                 Text(subLabel)
-                    .font(.caption2.monospacedDigit())
+                    .font(MacbotDS.Typo.mono)
                     .foregroundStyle(.tertiary)
             }
         }
@@ -302,9 +308,9 @@ private struct SystemGaugesView: View {
     }
 
     private var memoryColor: Color {
-        if monitor.memoryUsage > 0.85 { return .red }
-        if monitor.memoryUsage > 0.7 { return .orange }
-        return .green
+        if monitor.memoryUsage > 0.85 { return MacbotDS.Colors.danger }
+        if monitor.memoryUsage > 0.7 { return MacbotDS.Colors.warning }
+        return MacbotDS.Colors.success
     }
 }
 

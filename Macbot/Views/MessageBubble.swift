@@ -4,6 +4,9 @@ import MarkdownUI
 struct MessageBubble: View {
     let message: ChatMessage
     var onEdit: (() -> Void)?
+    /// When true, uses plain Text instead of Markdown for performance.
+    /// Markdown parsing is expensive; during streaming we skip it.
+    var isStreaming: Bool = false
     @State private var isHovering = false
     @State private var expandedImage: Data?
 
@@ -60,21 +63,30 @@ struct MessageBubble: View {
             // Content
             if !message.content.isEmpty {
                 if message.role == .assistant {
-                    Markdown(message.content)
-                        .markdownTextStyle {
-                            FontSize(14)
-                        }
-                        .markdownBlockStyle(\.codeBlock) { configuration in
-                            configuration.label
-                                .padding(12)
-                                .background(.fill.quaternary)
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                                )
-                        }
-                        .textSelection(.enabled)
+                    if isStreaming {
+                        // Plain text during streaming — Markdown parsing
+                        // is too expensive at 10 updates/sec.
+                        Text(message.content)
+                            .font(.body)
+                            .textSelection(.enabled)
+                    } else {
+                        // Full Markdown rendering after streaming completes.
+                        Markdown(message.content)
+                            .markdownTextStyle {
+                                FontSize(14)
+                            }
+                            .markdownBlockStyle(\.codeBlock) { configuration in
+                                configuration.label
+                                    .padding(12)
+                                    .background(.fill.quaternary)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                                    )
+                            }
+                            .textSelection(.enabled)
+                    }
                 } else {
                     Text(message.content)
                         .font(.body)

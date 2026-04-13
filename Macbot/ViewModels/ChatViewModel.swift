@@ -9,6 +9,10 @@ import SwiftUI
 final class ChatStreamAccumulator {
     var responseText: String = ""
     var agentCategory: AgentCategory?
+    var lastFlushTime: CFAbsoluteTime = 0
+    /// Minimum interval between UI updates during streaming.
+    /// Prevents re-rendering Markdown 30-50x/sec on fast streams.
+    static let flushInterval: CFAbsoluteTime = 0.1  // 10 fps max
 }
 
 @Observable
@@ -163,6 +167,11 @@ final class ChatViewModel {
                         case .text(let chunk):
                             acc.responseText += chunk
                             self.currentStatus = nil
+                            // Throttle UI updates to avoid re-rendering
+                            // Markdown on every chunk (30-50x/sec kills perf).
+                            let now = CFAbsoluteTimeGetCurrent()
+                            guard now - acc.lastFlushTime >= ChatStreamAccumulator.flushInterval else { break }
+                            acc.lastFlushTime = now
                             self.updateLastAgentMessage(acc.responseText, agent: acc.agentCategory)
 
                         case .status(let status):
@@ -202,6 +211,8 @@ final class ChatViewModel {
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
             await MainActor.run { [self] in
+                // Final flush — the throttle may have skipped the last chunk
+                self.updateLastAgentMessage(acc.responseText, agent: acc.agentCategory)
                 let responseText = acc.responseText
                 let agentCategory = acc.agentCategory
                 let tokens = TokenEstimator.estimate(responseText)
