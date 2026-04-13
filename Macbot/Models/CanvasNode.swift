@@ -40,6 +40,18 @@ struct CanvasNode: Identifiable, Equatable {
     var displayMode: DisplayMode = .card
     var viewportHeight: CGFloat?   // explicit height for viewport3D mode
 
+    // MARK: - Widget mode
+
+    var widgetState: WidgetState = .idle
+    var originalPrompt: String?    // stores the user's prompt when in widget result state
+
+    enum WidgetState: String, Codable, Equatable {
+        case idle      // normal card
+        case loading   // AI is responding in-place
+        case result    // showing AI response, can toggle back to prompt
+        case error     // AI failed
+    }
+
     enum DisplayMode: String, Codable, Equatable {
         case card       // full card chrome: header, text, 3D, footer
         case viewport3D // free-floating: just the 3D viewport + thin toolbar
@@ -87,6 +99,8 @@ struct CanvasNode: Identifiable, Equatable {
             && lhs.groupId == rhs.groupId
             && lhs.displayMode == rhs.displayMode
             && lhs.viewportHeight == rhs.viewportHeight
+            && lhs.widgetState == rhs.widgetState
+            && lhs.originalPrompt == rhs.originalPrompt
     }
 
     enum NodeColor: String, CaseIterable {

@@ -14,6 +14,10 @@ struct CanvasNodeView: View {
     var onCommitEdit: () -> Void
     var onStartEdge: () -> Void
     var onExecute: () -> Void = {}
+    var onWidgetExecute: () -> Void = {}
+    var onWidgetEdit: () -> Void = {}
+    var onWidgetRerun: () -> Void = {}
+    var onWidgetExpand: () -> Void = {}
 
     @State private var localText: String = ""
     @State private var isExpanded: Bool = false
@@ -179,10 +183,17 @@ struct CanvasNodeView: View {
                 }
             }
 
-            switch node.source {
-            case .chat(let origin): chatFooter(origin)
-            case .ai(let origin): aiFooter(origin)
-            case .manual: EmptyView()
+            // Widget result footer — edit/rerun/expand buttons
+            if node.widgetState == .result {
+                widgetResultFooter
+            } else if node.widgetState == .error {
+                widgetErrorFooter
+            } else {
+                switch node.source {
+                case .chat(let origin): chatFooter(origin)
+                case .ai(let origin): aiFooter(origin)
+                case .manual: EmptyView()
+                }
             }
         }
         .padding(MacbotDS.Space.md)
@@ -199,19 +210,35 @@ struct CanvasNodeView: View {
             y: isSelected ? 2 : 3
         )
         .overlay(alignment: .topTrailing) {
-            // Execute button — appears on hover
-            if isHovered && !isEditing && !isAIStreaming && !node.text.isEmpty {
-                Button(action: onExecute) {
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(MacbotDS.Colors.accent)
-                        .frame(width: 24, height: 24)
-                        .background(MacbotDS.Colors.accent.opacity(0.12))
-                        .clipShape(Circle())
+            // Execute buttons — appear on hover
+            if isHovered && !isEditing && !isAIStreaming && !node.text.isEmpty && node.widgetState != .loading {
+                HStack(spacing: MacbotDS.Space.xs) {
+                    // Widget mode (in-place answer)
+                    Button(action: onWidgetExecute) {
+                        Image(systemName: "return")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(MacbotDS.Colors.textSec)
+                            .frame(width: 24, height: 24)
+                            .background(.fill.tertiary)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Quick answer (Return)")
+
+                    // Expand mode (knowledge graph)
+                    Button(action: onExecute) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(MacbotDS.Colors.accent)
+                            .frame(width: 24, height: 24)
+                            .background(MacbotDS.Colors.accent.opacity(0.12))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Expand (Cmd+Return)")
                 }
-                .buttonStyle(.plain)
-                .help("Execute (Cmd+Return)")
-                .offset(x: -MacbotDS.Space.sm, y: MacbotDS.Space.sm)
+                .padding(.trailing, MacbotDS.Space.sm)
+                .padding(.top, MacbotDS.Space.sm)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
             }
         }
@@ -342,6 +369,69 @@ struct CanvasNodeView: View {
         }
         .buttonStyle(.plain)
         .help("Connect to another node")
+    }
+
+    // MARK: - Widget Footers
+
+    private var widgetResultFooter: some View {
+        HStack(spacing: MacbotDS.Space.sm) {
+            Button(action: onWidgetEdit) {
+                HStack(spacing: 3) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 8))
+                    Text("Edit")
+                }
+            }
+            .buttonStyle(.plain)
+
+            Button(action: onWidgetRerun) {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 8))
+                    Text("Re-run")
+                }
+            }
+            .buttonStyle(.plain)
+
+            Button(action: onWidgetExpand) {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 8))
+                    Text("Expand")
+                }
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+        }
+        .font(.system(size: 9, weight: .medium))
+        .foregroundStyle(MacbotDS.Colors.accent)
+    }
+
+    private var widgetErrorFooter: some View {
+        HStack(spacing: MacbotDS.Space.sm) {
+            Button(action: onWidgetEdit) {
+                HStack(spacing: 3) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 8))
+                    Text("Edit")
+                }
+            }
+            .buttonStyle(.plain)
+
+            Button(action: onWidgetRerun) {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 8))
+                    Text("Retry")
+                }
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+        }
+        .font(.system(size: 9, weight: .medium))
+        .foregroundStyle(MacbotDS.Colors.danger)
     }
 
     // MARK: - Footers

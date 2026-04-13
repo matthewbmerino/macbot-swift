@@ -68,7 +68,10 @@ final class ChatViewModel {
 
     init(orchestrator: Orchestrator) {
         self.orchestrator = orchestrator
-        loadChatList()
+        // Defer chat list loading to avoid blocking main thread on launch
+        Task { @MainActor [weak self] in
+            self?.loadChatList()
+        }
     }
 
     // MARK: - Chat List

@@ -1122,6 +1122,28 @@ struct CanvasView: View {
                 onExecute: {
                     viewModel.select(node.id)
                     executeSelectedNodes()
+                },
+                onWidgetExecute: {
+                    guard let orchestrator else { return }
+                    viewModel.executeWidget(nodeId: node.id, orchestrator: orchestrator)
+                },
+                onWidgetEdit: {
+                    viewModel.widgetEditPrompt(nodeId: node.id)
+                },
+                onWidgetRerun: {
+                    guard let orchestrator else { return }
+                    viewModel.widgetRerun(nodeId: node.id, orchestrator: orchestrator)
+                },
+                onWidgetExpand: {
+                    viewModel.select(node.id)
+                    // Restore original prompt before expanding
+                    if let idx = viewModel.nodes.firstIndex(where: { $0.id == node.id }),
+                       let original = viewModel.nodes[idx].originalPrompt {
+                        viewModel.nodes[idx].text = original
+                        viewModel.nodes[idx].widgetState = .idle
+                        viewModel.nodes[idx].originalPrompt = nil
+                    }
+                    executeSelectedNodes()
                 }
             )
             .scaleEffect(viewModel.scale * (isDragging ? 1.03 : isHovered ? 1.01 : 1.0))

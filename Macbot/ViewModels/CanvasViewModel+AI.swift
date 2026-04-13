@@ -404,6 +404,100 @@ extension CanvasViewModel {
         )
     }
 
+    // MARK: - Widget Execute (in-place response)
+
+    /// Execute a node in widget mode — AI response replaces the card content in-place.
+    /// The original prompt is preserved so the user can toggle back to edit and re-run.
+    func executeWidget(nodeId: UUID, orchestrator: Orchestrator) {
+        guard let idx = nodes.firstIndex(where: { $0.id == nodeId }) else { return }
+
+        pushUndo()
+        let prompt = nodes[idx].text
+        let nodeImages = nodes[idx].images ?? []
+        let hasImages = !nodeImages.isEmpty
+
+        // Store original prompt and set loading state
+        nodes[idx].originalPrompt = prompt
+        nodes[idx].widgetState = .loading
+        processingSourceIds = [nodeId]
+        isProcessingAI = true
+
+        let fullPrompt = """
+        The user asks:
+
+        \(prompt)
+        \(hasImages ? "\n[\(nodeImages.count) image(s) attached — analyze them.]\n" : "")
+        Respond directly and concisely. This is a quick answer card, not a research paper.
+        Use markdown formatting. Be precise and useful. No filler.
+        """
+
+        aiTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var accumulated = ""
+
+            do {
+                for try await event in orchestrator.handleMessageStream(
+                    userId: "widget-\(nodeId)",
+                    message: fullPrompt,
+                    images: hasImages ? nodeImages : nil
+                ) {
+                    try Task.checkCancellation()
+                    if case .text(let chunk) = event {
+                        accumulated += chunk
+                        if let i = self.nodes.firstIndex(where: { $0.id == nodeId }) {
+                            self.nodes[i].text = accumulated
+                        }
+                    }
+                    if case .image(let data, _) = event {
+                        if let i = self.nodes.firstIndex(where: { $0.id == nodeId }) {
+                            var imgs = self.nodes[i].images ?? []
+                            imgs.append(data)
+                            self.nodes[i].images = imgs
+                        }
+                    }
+                }
+                if let i = self.nodes.firstIndex(where: { $0.id == nodeId }) {
+                    self.nodes[i].widgetState = .result
+                }
+            } catch is CancellationError {
+                if let i = self.nodes.firstIndex(where: { $0.id == nodeId }) {
+                    self.nodes[i].widgetState = accumulated.isEmpty ? .idle : .result
+                }
+            } catch {
+                if let i = self.nodes.firstIndex(where: { $0.id == nodeId }) {
+                    self.nodes[i].text = "Error: \(error.localizedDescription)"
+                    self.nodes[i].widgetState = .error
+                }
+            }
+
+            self.processingSourceIds.removeAll()
+            self.isProcessingAI = false
+            self.aiStreamingNodeId = nil
+            self.aiTask = nil
+            self.scheduleSave()
+        }
+    }
+
+    /// Restore a widget card back to its original prompt for editing.
+    func widgetEditPrompt(nodeId: UUID) {
+        guard let idx = nodes.firstIndex(where: { $0.id == nodeId }),
+              let original = nodes[idx].originalPrompt else { return }
+        pushUndo()
+        nodes[idx].text = original
+        nodes[idx].widgetState = .idle
+        nodes[idx].originalPrompt = nil
+        editingNodeId = nodeId
+    }
+
+    /// Re-run a widget card with its stored prompt.
+    func widgetRerun(nodeId: UUID, orchestrator: Orchestrator) {
+        guard let idx = nodes.firstIndex(where: { $0.id == nodeId }),
+              let original = nodes[idx].originalPrompt else { return }
+        nodes[idx].text = original
+        nodes[idx].widgetState = .idle
+        executeWidget(nodeId: nodeId, orchestrator: orchestrator)
+    }
+
     // MARK: - 3D Execute (separate path)
 
     private func execute3DRequest(_ userText: String, cx: CGFloat, cy: CGFloat, sourceIds: Set<UUID>, orchestrator: Orchestrator) {

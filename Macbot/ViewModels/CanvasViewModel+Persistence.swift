@@ -71,13 +71,18 @@ extension CanvasViewModel {
     }
 
     func ensureCanvas() {
-        loadCanvasList()
-        if let first = canvasList.first {
-            loadCanvasContent(id: first.id)
-        } else {
-            let record = canvasStore.createCanvas(title: "Canvas")
-            currentCanvasId = record.id
-            loadCanvasList()
+        // Load canvas list and content asynchronously to avoid blocking the UI
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.loadCanvasList()
+            if let first = self.canvasList.first {
+                self.loadCanvasContent(id: first.id)
+            } else {
+                let record = self.canvasStore.createCanvas(title: "Canvas")
+                self.currentCanvasId = record.id
+                self.loadCanvasList()
+            }
+            self.checkLanding()
         }
     }
 
