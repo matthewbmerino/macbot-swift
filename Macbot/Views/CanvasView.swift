@@ -264,8 +264,8 @@ struct CanvasView: View {
 
         let ox = viewModel.offset.width.truncatingRemainder(dividingBy: spacing)
         let oy = viewModel.offset.height.truncatingRemainder(dividingBy: spacing)
-        let dotRadius: CGFloat = max(1, viewModel.scale)
-        let color = Color(nsColor: .separatorColor).opacity(0.35)
+        let dotRadius: CGFloat = max(1.5, 1.5 * viewModel.scale)
+        let color = Color(nsColor: .separatorColor).opacity(0.55)
 
         var x = ox
         while x < size.width {
