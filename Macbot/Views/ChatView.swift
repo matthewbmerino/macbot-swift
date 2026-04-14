@@ -44,30 +44,71 @@ struct ChatView: View {
         }
         .overlay(alignment: .topLeading) {
             if sidebarCollapsed {
-                // Just the sidebar-expand button — small footprint so it
-                // doesn't cover content in notebook/chat modes. Mode cycle
-                // moved to a hidden keyboard shortcut (⌘⇧J) below so the
-                // pill isn't needed for that.
-                Button(action: {
-                    withAnimation(Motion.snappy) { sidebarCollapsed = false }
-                }) {
-                    Image(systemName: "sidebar.left")
-                        .font(.caption)
-                        .foregroundStyle(MacbotDS.Colors.textSec)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(MacbotDS.Mat.chrome)
-                        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
-                                .stroke(MacbotDS.Colors.separator.opacity(0.3), lineWidth: 0.5)
-                        )
-                        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+                if viewModel.contentMode == .notebook {
+                    // Notebook has content flush at the top-left (notebooks
+                    // pane). Show only the tiny sidebar-toggle so the pill
+                    // doesn't cover the list. Mode cycle stays reachable via
+                    // ⌘⇧J and the hidden keyboard button below.
+                    Button(action: {
+                        withAnimation(Motion.snappy) { sidebarCollapsed = false }
+                    }) {
+                        Image(systemName: "sidebar.left")
+                            .font(.caption)
+                            .foregroundStyle(MacbotDS.Colors.textSec)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(MacbotDS.Mat.chrome)
+                            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
+                                    .stroke(MacbotDS.Colors.separator.opacity(0.3), lineWidth: 0.5)
+                            )
+                            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Show sidebar")
+                    .padding(MacbotDS.Space.sm)
+                    .transition(.opacity)
+                } else {
+                    // Canvas/Chat have empty space at top-left. Show the full
+                    // pill: sidebar-expand + quick mode cycle.
+                    HStack(spacing: MacbotDS.Space.xs) {
+                        Button(action: {
+                            withAnimation(Motion.snappy) { sidebarCollapsed = false }
+                        }) {
+                            Image(systemName: "sidebar.left")
+                                .font(.caption)
+                                .foregroundStyle(MacbotDS.Colors.textSec)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Show sidebar")
+
+                        Divider().frame(height: 14)
+
+                        Button(action: cycleContentMode) {
+                            HStack(spacing: MacbotDS.Space.xs) {
+                                Image(systemName: modeIcon(for: nextMode))
+                                    .font(.system(size: 10))
+                                Text(modeLabel(for: nextMode))
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(MacbotDS.Colors.textSec)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Switch to \(modeLabel(for: nextMode))")
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(MacbotDS.Mat.chrome)
+                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
+                            .stroke(MacbotDS.Colors.separator.opacity(0.3), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+                    .padding(MacbotDS.Space.sm)
+                    .transition(.opacity)
                 }
-                .buttonStyle(.plain)
-                .help("Show sidebar")
-                .padding(MacbotDS.Space.sm)
-                .transition(.opacity)
             }
         }
         .background(
