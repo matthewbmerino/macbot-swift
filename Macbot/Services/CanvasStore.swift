@@ -144,6 +144,9 @@ final class CanvasStore {
         let canvasTitle: String
         let nodeText: String
         let nodeColor: String
+        /// Cosine similarity when the result came from semantic search.
+        /// Nil for keyword/LIKE results.
+        let similarity: Float?
     }
 
     func searchNodes(query: String) -> [SearchResult] {
@@ -164,7 +167,8 @@ final class CanvasStore {
                         canvasId: row["canvasId"],
                         canvasTitle: row["canvasTitle"],
                         nodeText: row["text"],
-                        nodeColor: row["color"]
+                        nodeColor: row["color"],
+                        similarity: nil
                     )
                 }
             }
@@ -199,10 +203,13 @@ final class CanvasStore {
                     try canvas.update(db)
                 }
 
-                // Snapshot existing embeddings, keyed by (id, text). We only
-                // carry an embedding forward if the text is unchanged — any
-                // edit invalidates.
-                var preservedEmbeddings: [String: Data] = [:]
+                // Snapshot existing embeddings keyed by id, alongside the text
+                // they were generated from. Carry the embedding forward only
+                // when the incoming text matches the snapshot text — any edit
+                // invalidates. Keying by id (not id+text) means a rename cycle
+                // A→B→A still matches on the second A, since the snapshot
+                // reflects pre-save state which is still the first A.
+                var preservedEmbeddings: [String: (text: String, data: Data)] = [:]
                 let existingRows = try Row.fetchAll(db, sql: """
                     SELECT id, text, embedding FROM canvas_nodes WHERE canvasId = ?
                 """, arguments: [canvasId])
@@ -210,14 +217,17 @@ final class CanvasStore {
                     guard let emb: Data = row["embedding"] else { continue }
                     let id: String = row["id"]
                     let text: String = row["text"]
-                    preservedEmbeddings["\(id)::\(text)"] = emb
+                    preservedEmbeddings[id] = (text, emb)
                 }
 
                 // Replace nodes
                 try db.execute(sql: "DELETE FROM canvas_nodes WHERE canvasId = ?", arguments: [canvasId])
                 for node in nodes {
                     var record = Self.toNodeRecord(node, canvasId: canvasId)
-                    record.embedding = preservedEmbeddings["\(node.id.uuidString)::\(node.text)"]
+                    if let snapshot = preservedEmbeddings[node.id.uuidString],
+                       snapshot.text == node.text {
+                        record.embedding = snapshot.data
+                    }
                     try record.insert(db)
                 }
 
@@ -274,11 +284,37 @@ final class CanvasStore {
     func searchNodesSemantic(query: String, limit: Int = 20) async -> [SearchResult] {
         let hits = await embedder.semanticSearch(query: query, limit: limit)
         guard !hits.isEmpty else { return searchNodes(query: query) }
+        let results = resolveHits(hits)
+        // If the DB fetch failed, fall back to keyword search so the user
+        // still gets something.
+        return results.isEmpty ? searchNodes(query: query) : results
+    }
+
+    /// Related nodes for the inspector panel. Embeds `nodeText`, drops the
+    /// self-hit (`excluding`), and returns results sorted by similarity.
+    func relatedNodes(
+        for nodeText: String,
+        excluding nodeId: UUID,
+        limit: Int = 10
+    ) async -> [SearchResult] {
+        // Ask for one extra so we can drop the self-hit and still return `limit`.
+        let hits = await embedder.semanticSearch(query: nodeText, limit: limit + 1)
+        let filtered = hits.filter { $0.nodeId != nodeId }.prefix(limit)
+        return resolveHits(Array(filtered))
+    }
+
+    /// Resolve vector-index hits into SearchResults, preserving similarity and
+    /// the input order (which is similarity-sorted from the VectorIndex).
+    private func resolveHits(_ hits: [(nodeId: UUID, similarity: Float)]) -> [SearchResult] {
+        guard !hits.isEmpty else { return [] }
 
         let idStrings = hits.map { $0.nodeId.uuidString }
+        let similarityById: [String: Float] = Dictionary(
+            uniqueKeysWithValues: hits.map { ($0.nodeId.uuidString, $0.similarity) }
+        )
 
         do {
-            let rows = try await db.read { db in
+            let rows = try db.read { db in
                 try Row.fetchAll(db, sql: """
                     SELECT n.id, n.canvasId, c.title AS canvasTitle, n.text, n.color
                     FROM canvas_nodes n
@@ -287,21 +323,22 @@ final class CanvasStore {
                 """, arguments: StatementArguments(idStrings))
             }
 
-            // Preserve the similarity-sorted order from the vector index.
             let byId: [String: SearchResult] = Dictionary(uniqueKeysWithValues: rows.map { row in
+                let id: String = row["id"]
                 let r = SearchResult(
-                    nodeId: row["id"],
+                    nodeId: id,
                     canvasId: row["canvasId"],
                     canvasTitle: row["canvasTitle"],
                     nodeText: row["text"],
-                    nodeColor: row["color"]
+                    nodeColor: row["color"],
+                    similarity: similarityById[id]
                 )
                 return (r.nodeId, r)
             })
             return idStrings.compactMap { byId[$0] }
         } catch {
-            Log.app.error("[canvas] searchNodesSemantic failed: \(error)")
-            return searchNodes(query: query)
+            Log.app.error("[canvas] resolveHits failed: \(error)")
+            return []
         }
     }
 

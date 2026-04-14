@@ -286,6 +286,19 @@ struct CanvasView: View {
                     .frame(width: 260)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
+
+            if viewModel.showInspector {
+                Divider()
+                inspectorPanel
+                    .frame(width: 260)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .onChange(of: viewModel.selectedIds) { _, _ in
+            viewModel.refreshRelatedNodes()
+        }
+        .onChange(of: viewModel.showInspector) { _, _ in
+            viewModel.refreshRelatedNodes()
         }
         .overlay {
             if viewModel.showSearch {
@@ -1640,6 +1653,11 @@ struct CanvasView: View {
                           isActive: viewModel.showMinimap) {
                 withAnimation(Motion.snappy) { viewModel.showMinimap.toggle() }
             }
+
+            toolbarToggle("sparkle.magnifyingglass", help: "Related Nodes",
+                          isActive: viewModel.showInspector) {
+                withAnimation(Motion.snappy) { viewModel.showInspector.toggle() }
+            }
         }
         .padding(.horizontal, MacbotDS.Space.md)
         .padding(.vertical, MacbotDS.Space.sm)
@@ -1897,6 +1915,109 @@ struct CanvasView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Inspector Panel (Related Nodes)
+
+    private var inspectorPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Image(systemName: "sparkle.magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(MacbotDS.Colors.accent)
+                Text("Related")
+                    .font(MacbotDS.Typo.heading)
+                    .foregroundStyle(MacbotDS.Colors.textPri)
+                Spacer()
+                Button(action: {
+                    withAnimation(Motion.snappy) { viewModel.showInspector = false }
+                }) {
+                    Image(systemName: "xmark")
+                        .font(.caption2)
+                        .foregroundStyle(MacbotDS.Colors.textTer)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, MacbotDS.Space.md)
+            .padding(.vertical, MacbotDS.Space.md)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    if viewModel.selectedIds.count != 1 {
+                        inspectorEmptyState(
+                            icon: "cursorarrow.rays",
+                            message: "Select a node to see related notes."
+                        )
+                    } else if viewModel.relatedNodes.isEmpty {
+                        inspectorEmptyState(
+                            icon: "doc.text.magnifyingglass",
+                            message: "No related nodes yet. Edit the selected node or add more notes — embeddings catch up asynchronously."
+                        )
+                    } else {
+                        ForEach(viewModel.relatedNodes, id: \.nodeId) { result in
+                            relatedNodeRow(result)
+                        }
+                    }
+                }
+                .padding(.vertical, MacbotDS.Space.xs)
+            }
+        }
+        .background(MacbotDS.Mat.chrome)
+    }
+
+    private func inspectorEmptyState(icon: String, message: String) -> some View {
+        VStack(alignment: .leading, spacing: MacbotDS.Space.sm) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(MacbotDS.Colors.textTer)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(MacbotDS.Colors.textTer)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, MacbotDS.Space.md)
+        .padding(.vertical, MacbotDS.Space.lg)
+    }
+
+    private func relatedNodeRow(_ result: CanvasStore.SearchResult) -> some View {
+        Button {
+            viewModel.navigateToSearchResult(result)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(nodeColor(from: result.nodeColor))
+                        .frame(width: 6, height: 6)
+                    Text(result.canvasTitle)
+                        .font(.caption2)
+                        .foregroundStyle(MacbotDS.Colors.textTer)
+                        .lineLimit(1)
+                    Spacer()
+                    if let sim = result.similarity {
+                        Text("\(Int(sim * 100))%")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(MacbotDS.Colors.textTer)
+                    }
+                }
+                Text(result.nodeText.isEmpty ? "(empty)" : result.nodeText)
+                    .font(.caption)
+                    .foregroundStyle(MacbotDS.Colors.textPri)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, MacbotDS.Space.md)
+            .padding(.vertical, MacbotDS.Space.sm)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func nodeColor(from raw: String) -> Color {
+        (CanvasNode.NodeColor(rawValue: raw) ?? .note).accentColor
     }
 
     // MARK: - Chat Browser Panel

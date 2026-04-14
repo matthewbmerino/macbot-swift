@@ -206,6 +206,38 @@ final class CanvasViewModel {
     var browserMessages: [ChatMessageRecord] = []
     var browserExpandedChatId: String?
 
+    // MARK: - Inspector (Related Nodes)
+
+    var showInspector = false
+    var relatedNodes: [CanvasStore.SearchResult] = []
+    private var relatedNodesTask: Task<Void, Never>?
+
+    /// Refresh related-node suggestions for the currently-selected node.
+    /// No-op unless the inspector is visible and exactly one node is selected.
+    func refreshRelatedNodes() {
+        relatedNodesTask?.cancel()
+        guard showInspector,
+              selectedIds.count == 1,
+              let nodeId = selectedIds.first,
+              let node = nodes.first(where: { $0.id == nodeId }) else {
+            relatedNodes = []
+            return
+        }
+        let text = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            relatedNodes = []
+            return
+        }
+        let store = canvasStore
+        relatedNodesTask = Task { @MainActor [weak self] in
+            let results = await store.relatedNodes(for: text, excluding: nodeId, limit: 10)
+            guard let self,
+                  self.selectedIds == [nodeId],
+                  !Task.isCancelled else { return }
+            self.relatedNodes = results
+        }
+    }
+
     // MARK: - Drop state
 
     var dropTargeted = false

@@ -44,14 +44,27 @@ final class CanvasEmbedder: @unchecked Sendable {
     private let vectorIndex = VectorIndex()
 
     private var idMap: [Int64: UUID] = [:]
-    private let idMapLock = NSLock()
+    private let stateLock = NSLock()
 
     private var embeddingQueue: CanvasEmbeddingQueue?
 
+    // Backing storage for the config below. All access goes through stateLock
+    // because `embeddingClient` is assigned from MainActor in MacbotApp and
+    // read from detached embed Tasks.
+    private var _embeddingClient: (any InferenceProvider)?
+    private var _embeddingModel: String = "qwen3-embedding:0.6b"
+
     /// Assigned at app startup once the orchestrator is ready. Nil until then;
     /// search falls back to keyword matching when nil.
-    var embeddingClient: (any InferenceProvider)?
-    var embeddingModel: String = "qwen3-embedding:0.6b"
+    var embeddingClient: (any InferenceProvider)? {
+        get { stateLock.withLock { _embeddingClient } }
+        set { stateLock.withLock { _embeddingClient = newValue } }
+    }
+
+    var embeddingModel: String {
+        get { stateLock.withLock { _embeddingModel } }
+        set { stateLock.withLock { _embeddingModel = newValue } }
+    }
 
     init(db: DatabasePool = DatabaseManager.shared.dbPool) {
         self.db = db
@@ -79,7 +92,7 @@ final class CanvasEmbedder: @unchecked Sendable {
                   !vec.isEmpty else { continue }
             let vid = uuid.stableInt64
             vectorIndex.insert(id: vid, embedding: vec)
-            idMapLock.withLock { idMap[vid] = uuid }
+            stateLock.withLock { idMap[vid] = uuid }
             loaded += 1
         }
         if loaded > 0 {
@@ -98,7 +111,7 @@ final class CanvasEmbedder: @unchecked Sendable {
     func remove(nodeId: UUID) {
         let vid = nodeId.stableInt64
         vectorIndex.remove(id: vid)
-        idMapLock.withLock { idMap[vid] = nil }
+        stateLock.withLock { idMap[vid] = nil }
     }
 
     /// Backfill embeddings for every canvas node whose embedding is null.
@@ -149,7 +162,7 @@ final class CanvasEmbedder: @unchecked Sendable {
             let embeddings = try await client.embed(model: embeddingModel, text: [trimmed])
             guard let q = embeddings.first, !q.isEmpty else { return [] }
             let hits = vectorIndex.search(query: q, topK: limit, threshold: threshold)
-            return idMapLock.withLock {
+            return stateLock.withLock {
                 hits.compactMap { hit -> (nodeId: UUID, similarity: Float)? in
                     guard let uuid = idMap[hit.id] else { return nil }
                     return (uuid, hit.similarity)
@@ -179,7 +192,7 @@ final class CanvasEmbedder: @unchecked Sendable {
 
             let vid = nodeId.stableInt64
             vectorIndex.insert(id: vid, embedding: vec)
-            idMapLock.withLock { idMap[vid] = nodeId }
+            stateLock.withLock { idMap[vid] = nodeId }
         } catch {
             Log.app.warning("[canvas] failed to embed node \(nodeId): \(error)")
         }
