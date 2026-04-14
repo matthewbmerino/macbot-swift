@@ -50,6 +50,42 @@ final class ChatViewModel {
         notebookViewModel.bootstrap()
     }
 
+    // MARK: - Command Palette
+
+    /// When true the palette is presented as a modal overlay above the whole app.
+    var showPalette = false
+
+    /// The current palette query, cleared on each open.
+    var paletteQuery = ""
+
+    /// Show or hide the palette. Clears query on open so stale results don't flash.
+    func togglePalette() {
+        if showPalette {
+            showPalette = false
+        } else {
+            paletteQuery = ""
+            showPalette = true
+        }
+    }
+
+    // MARK: - Secondary pane toggles (Cmd+\\)
+
+    /// Whether the chat list panel is visible inside chat mode. Lives here so
+    /// keyboard shortcuts outside the view can toggle it.
+    var chatListVisible = true
+
+    /// Whether the canvas list panel is visible inside canvas mode.
+    var canvasListVisible = false
+
+    /// Toggle the secondary pane for the current mode.
+    func toggleSecondaryPane() {
+        switch contentMode {
+        case .chat:     chatListVisible.toggle()
+        case .canvas:   canvasListVisible.toggle()
+        case .notebook: break // Notebook's three-pane layout handles its own
+        }
+    }
+
     // Current chat state
     var messages: [ChatMessage] = []
     var isStreaming = false

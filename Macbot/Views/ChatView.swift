@@ -7,118 +7,27 @@ struct ChatView: View {
     @FocusState private var inputFocused: Bool
     @State private var dragOver = false
     @State private var livePulse = false
-    @State private var sidebarCollapsed = true
 
     var body: some View {
         HStack(spacing: 0) {
-            if !sidebarCollapsed {
-                // Notebook mode gets a narrow icon rail so it doesn't
-                // double-show the notebook list (NotebookView's own
-                // notebooks pane is authoritative). Chat and Canvas keep
-                // the full 220pt sidebar.
-                if viewModel.contentMode == .notebook {
-                    railSidebar
-                        .frame(width: 52)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                } else {
-                    sidebar
-                        .frame(width: 220)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
-
-                Divider()
-            }
-
-            switch viewModel.contentMode {
-            case .chat:
-                chatContent
-            case .canvas:
-                CanvasView(
-                    viewModel: viewModel.canvasViewModel,
-                    loadMessages: { viewModel.loadMessagesForCanvas(chatId: $0) },
-                    orchestrator: viewModel.canvasOrchestrator
+            modeRail
+            Divider()
+            modeContent
+        }
+        .overlay {
+            // Command palette — the universal keyboard-first nav surface.
+            // One overlay serving all modes. Cmd+K toggles it.
+            if viewModel.showPalette {
+                CommandPalette(
+                    viewModel: viewModel,
+                    items: paletteItems,
+                    onSelect: dispatchPaletteItem,
+                    onDismiss: { viewModel.showPalette = false }
                 )
-            case .notebook:
-                NotebookView(viewModel: viewModel.notebookViewModel)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
         }
-        .overlay(alignment: .topLeading) {
-            if sidebarCollapsed {
-                if viewModel.contentMode == .notebook {
-                    // Notebook has content flush at the top-left (notebooks
-                    // pane). Show only the tiny sidebar-toggle so the pill
-                    // doesn't cover the list. Mode cycle stays reachable via
-                    // ⌘⇧J and the hidden keyboard button below.
-                    Button(action: {
-                        withAnimation(Motion.snappy) { sidebarCollapsed = false }
-                    }) {
-                        Image(systemName: "sidebar.left")
-                            .font(.caption)
-                            .foregroundStyle(MacbotDS.Colors.textSec)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
-                            .background(MacbotDS.Mat.chrome)
-                            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
-                                    .stroke(MacbotDS.Colors.separator.opacity(0.3), lineWidth: 0.5)
-                            )
-                            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Show sidebar")
-                    .padding(MacbotDS.Space.sm)
-                    .transition(.opacity)
-                } else {
-                    // Canvas/Chat have empty space at top-left. Show the full
-                    // pill: sidebar-expand + quick mode cycle.
-                    HStack(spacing: MacbotDS.Space.xs) {
-                        Button(action: {
-                            withAnimation(Motion.snappy) { sidebarCollapsed = false }
-                        }) {
-                            Image(systemName: "sidebar.left")
-                                .font(.caption)
-                                .foregroundStyle(MacbotDS.Colors.textSec)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Show sidebar")
-
-                        Divider().frame(height: 14)
-
-                        Button(action: cycleContentMode) {
-                            HStack(spacing: MacbotDS.Space.xs) {
-                                Image(systemName: modeIcon(for: nextMode))
-                                    .font(.system(size: 10))
-                                Text(modeLabel(for: nextMode))
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundStyle(MacbotDS.Colors.textSec)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Switch to \(modeLabel(for: nextMode))")
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(MacbotDS.Mat.chrome)
-                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
-                            .stroke(MacbotDS.Colors.separator.opacity(0.3), lineWidth: 0.5)
-                    )
-                    .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                    .padding(MacbotDS.Space.sm)
-                    .transition(.opacity)
-                }
-            }
-        }
-        .background(
-            // Invisible 0×0 button carries the ⌘⇧J mode-cycle shortcut so
-            // it works whether the sidebar is collapsed or not.
-            Button("") { cycleContentMode() }
-                .keyboardShortcut(.init("J"), modifiers: [.command, .shift])
-                .frame(width: 0, height: 0)
-                .hidden()
-        )
+        .background(hiddenShortcutButtons)
         .background(MacbotDS.Colors.bg)
         .frame(minWidth: 700, minHeight: 520)
         .onAppear {
@@ -133,83 +42,173 @@ struct ChatView: View {
         }
     }
 
-    // MARK: - Sidebar
+    @ViewBuilder
+    private var modeContent: some View {
+        switch viewModel.contentMode {
+        case .chat:
+            chatModeLayout
+        case .canvas:
+            CanvasView(
+                viewModel: viewModel.canvasViewModel,
+                loadMessages: { viewModel.loadMessagesForCanvas(chatId: $0) },
+                orchestrator: viewModel.canvasOrchestrator
+            )
+        case .notebook:
+            NotebookView(viewModel: viewModel.notebookViewModel)
+        }
+    }
 
-    private var sidebar: some View {
+    /// Chat mode with an optional left-side list panel owned by the mode
+    /// (not the app chrome). Cmd+\\ toggles visibility.
+    private var chatModeLayout: some View {
+        HStack(spacing: 0) {
+            if viewModel.chatListVisible {
+                chatListPanel
+                    .frame(width: 240)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                Divider()
+            }
+            chatContent
+        }
+    }
+
+    // MARK: - Mode Rail (always visible, 44pt)
+
+    /// The app-level navigation chrome. Always visible, always narrow.
+    /// Contains only mode switching and the command palette launcher.
+    /// Everything mode-specific lives inside each mode's own content view.
+    private var modeRail: some View {
+        VStack(spacing: MacbotDS.Space.md) {
+            railButton(
+                icon: "book.closed",
+                mode: .notebook,
+                help: "Notebook (⌘1)"
+            )
+            railButton(
+                icon: "rectangle.on.rectangle.angled",
+                mode: .canvas,
+                help: "Canvas (⌘2)"
+            )
+            railButton(
+                icon: "bubble.left.and.text.bubble.right",
+                mode: .chat,
+                help: "Chat (⌘3)"
+            )
+
+            Spacer()
+
+            // Command palette launcher — the universal go-to.
+            Button(action: { viewModel.togglePalette() }) {
+                Image(systemName: "command")
+                    .font(.system(size: 14))
+                    .foregroundStyle(MacbotDS.Colors.textSec)
+                    .frame(width: 32, height: 32)
+                    .background(.fill.tertiary)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help("Command Palette (⌘K)")
+        }
+        .padding(.vertical, MacbotDS.Space.md)
+        .padding(.horizontal, 6)
+        .frame(width: 44)
+        .frame(maxHeight: .infinity)
+        .background(MacbotDS.Mat.chrome)
+    }
+
+    private func railButton(icon: String, mode: ContentMode, help: String) -> some View {
+        let isActive = viewModel.contentMode == mode
+        return Button(action: {
+            withAnimation(Motion.snappy) {
+                switchMode(to: mode)
+            }
+        }) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(isActive ? MacbotDS.Colors.textPri : MacbotDS.Colors.textTer)
+                .frame(width: 32, height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isActive ? AnyShapeStyle(MacbotDS.Colors.accent.opacity(0.18)) : AnyShapeStyle(.clear))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(isActive ? MacbotDS.Colors.accent.opacity(0.35) : .clear, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    /// Centralized mode switch — sets up the target mode's state before flipping.
+    private func switchMode(to mode: ContentMode) {
+        if mode == .canvas {
+            viewModel.refreshCanvasChats()
+            viewModel.setupCanvas()
+        }
+        if mode == .notebook {
+            viewModel.setupNotebook()
+        }
+        viewModel.contentMode = mode
+    }
+
+    // MARK: - Hidden keyboard shortcuts
+
+    /// Invisible buttons parked in a .background that carry the app-level
+    /// keyboard shortcuts. `.keyboardShortcut` only works on buttons in the
+    /// view tree, so this is the idiomatic SwiftUI pattern for cross-window
+    /// shortcuts that shouldn't have a visible affordance.
+    private var hiddenShortcutButtons: some View {
+        Group {
+            Button("") { withAnimation(Motion.snappy) { switchMode(to: .notebook) } }
+                .keyboardShortcut(.init("1"), modifiers: .command)
+            Button("") { withAnimation(Motion.snappy) { switchMode(to: .canvas) } }
+                .keyboardShortcut(.init("2"), modifiers: .command)
+            Button("") { withAnimation(Motion.snappy) { switchMode(to: .chat) } }
+                .keyboardShortcut(.init("3"), modifiers: .command)
+            Button("") { viewModel.togglePalette() }
+                .keyboardShortcut(.init("K"), modifiers: .command)
+            Button("") {
+                withAnimation(Motion.snappy) { viewModel.toggleSecondaryPane() }
+            }
+            .keyboardShortcut(.init("\\"), modifiers: .command)
+        }
+        .frame(width: 0, height: 0)
+        .hidden()
+    }
+
+    // MARK: - Chat list panel (owned by chat mode)
+
+    /// The chat list panel lives INSIDE chat mode now (not in the app rail),
+    /// so it can own its own search, new-chat affordance, and list rendering
+    /// without competing with other modes for sidebar real estate.
+    private var chatListPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack(spacing: MacbotDS.Space.sm) {
-                Button(action: {
-                    withAnimation(Motion.snappy) { sidebarCollapsed = true }
-                }) {
-                    Image(systemName: "sidebar.left")
+            // Header with new-chat action
+            HStack {
+                Text("Chats")
+                    .font(.caption2.weight(.bold))
+                    .kerning(0.5)
+                    .foregroundStyle(MacbotDS.Colors.textTer)
+                    .textCase(.uppercase)
+                Spacer()
+                Button(action: { viewModel.newChat() }) {
+                    Image(systemName: "square.and.pencil")
                         .font(.caption)
-                        .foregroundStyle(MacbotDS.Colors.textTer)
+                        .foregroundStyle(MacbotDS.Colors.textSec)
                 }
                 .buttonStyle(.plain)
-                .help("Collapse sidebar")
-
-                Spacer()
-
-                switch viewModel.contentMode {
-                case .chat:
-                    Button(action: { viewModel.newChat() }) {
-                        Image(systemName: "square.and.pencil")
-                            .font(.caption)
-                            .foregroundStyle(MacbotDS.Colors.textSec)
-                            .padding(6)
-                            .background(.fill.tertiary)
-                            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .help("New Chat")
-                case .canvas:
-                    Button(action: { viewModel.canvasViewModel.createCanvas() }) {
-                        Image(systemName: "plus")
-                            .font(.caption)
-                            .foregroundStyle(MacbotDS.Colors.textSec)
-                            .padding(6)
-                            .background(.fill.tertiary)
-                            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .help("New Canvas")
-                case .notebook:
-                    Button(action: { viewModel.notebookViewModel.createPageInCurrentNotebook() }) {
-                        Image(systemName: "square.and.pencil")
-                            .font(.caption)
-                            .foregroundStyle(MacbotDS.Colors.textSec)
-                            .padding(6)
-                            .background(.fill.tertiary)
-                            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .help("New Page (⌘J)")
-                    .keyboardShortcut(.init("J"), modifiers: .command)
-                }
+                .help("New Chat (⌘N)")
             }
             .padding(.horizontal, MacbotDS.Space.md)
-            .padding(.top, MacbotDS.Space.md)
-            .padding(.bottom, MacbotDS.Space.xs)
-
-            // Mode toggle — segmented control
-            HStack(spacing: 2) {
-                modeButton("Notebook", icon: "book.closed", mode: .notebook)
-                modeButton("Canvas", icon: "rectangle.on.rectangle.angled", mode: .canvas)
-                modeButton("Chat", icon: "bubble.left.and.text.bubble.right", mode: .chat)
-            }
-            .padding(2)
-            .background(.fill.quaternary)
-            .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-            .padding(.horizontal, MacbotDS.Space.md)
-            .padding(.bottom, MacbotDS.Space.md)
+            .padding(.vertical, MacbotDS.Space.sm)
 
             // Search
             HStack(spacing: MacbotDS.Space.sm) {
                 Image(systemName: "magnifyingglass")
                     .font(.caption2)
                     .foregroundStyle(MacbotDS.Colors.textTer)
-                TextField("Search...", text: $viewModel.searchQuery)
+                TextField("Search chats...", text: $viewModel.searchQuery)
                     .textFieldStyle(.plain)
                     .font(.caption)
                     .foregroundStyle(MacbotDS.Colors.textPri)
@@ -228,332 +227,158 @@ struct ChatView: View {
             .background(.fill.quaternary)
             .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
             .padding(.horizontal, MacbotDS.Space.md)
-            .padding(.bottom, MacbotDS.Space.md)
+            .padding(.bottom, MacbotDS.Space.sm)
 
-            // Content list — shows chats or canvases based on mode.
-            // Notebook mode never renders this full sidebar (uses railSidebar),
-            // so its case is unreachable but required for switch exhaustiveness.
-            switch viewModel.contentMode {
-            case .chat:
-                if viewModel.isSearching {
-                    searchResultsList
-                } else {
-                    chatList
-                }
-            case .canvas:
-                canvasList
-            case .notebook:
-                EmptyView()
+            Divider()
+
+            if viewModel.isSearching {
+                searchResultsList
+            } else {
+                chatList
             }
 
             Spacer(minLength: 0)
-
-            // Status bar
-            HStack(spacing: MacbotDS.Space.sm) {
-                // Live indicator
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.caption2)
-                    .foregroundStyle(MacbotDS.Colors.success)
-                    .symbolEffect(.pulse, isActive: true)
-
-                Text(viewModel.isStreaming ? "Thinking..." : "On-Device")
-                    .font(MacbotDS.Typo.detail)
-                    .foregroundStyle(viewModel.isStreaming ? MacbotDS.Colors.warning : MacbotDS.Colors.success)
-
-                Spacer()
-
-                Text(viewModel.activeAgent.displayName)
-                    .font(MacbotDS.Typo.detail)
-                    .foregroundStyle(MacbotDS.Colors.textTer)
-                    .padding(.horizontal, MacbotDS.Space.sm)
-                    .padding(.vertical, MacbotDS.Space.xs)
-                    .background(.fill.tertiary)
-                    .clipShape(Capsule())
-            }
-            .padding(.horizontal, MacbotDS.Space.md)
-            .padding(.vertical, MacbotDS.Space.md)
         }
         .background(MacbotDS.Mat.chrome)
     }
+
+    // MARK: - Palette items & dispatch
+
+    /// Build the palette's search corpus on demand. Includes every navigable
+    /// object in the app plus the global action verbs.
+    private var paletteItems: [PaletteItem] {
+        var items: [PaletteItem] = []
+
+        // Actions — mode switches and create-new verbs.
+        items.append(PaletteItem(
+            id: "act:mode.notebook", title: "Switch to Notebook",
+            subtitle: "⌘1", icon: "book.closed", category: .action,
+            action: { withAnimation(Motion.snappy) { switchMode(to: .notebook) } }
+        ))
+        items.append(PaletteItem(
+            id: "act:mode.canvas", title: "Switch to Canvas",
+            subtitle: "⌘2", icon: "rectangle.on.rectangle.angled", category: .action,
+            action: { withAnimation(Motion.snappy) { switchMode(to: .canvas) } }
+        ))
+        items.append(PaletteItem(
+            id: "act:mode.chat", title: "Switch to Chat",
+            subtitle: "⌘3", icon: "bubble.left.and.text.bubble.right", category: .action,
+            action: { withAnimation(Motion.snappy) { switchMode(to: .chat) } }
+        ))
+        items.append(PaletteItem(
+            id: "act:new.page", title: "New Page",
+            subtitle: "In the current notebook", icon: "doc.badge.plus", category: .action,
+            action: {
+                switchMode(to: .notebook)
+                viewModel.notebookViewModel.createPageInCurrentNotebook()
+            }
+        ))
+        items.append(PaletteItem(
+            id: "act:new.notebook", title: "New Notebook",
+            subtitle: nil, icon: "book.closed", category: .action,
+            action: {
+                switchMode(to: .notebook)
+                viewModel.notebookViewModel.createNotebook()
+            }
+        ))
+        items.append(PaletteItem(
+            id: "act:new.canvas", title: "New Canvas",
+            subtitle: nil, icon: "plus.rectangle.on.rectangle", category: .action,
+            action: {
+                switchMode(to: .canvas)
+                viewModel.canvasViewModel.createCanvas()
+            }
+        ))
+        items.append(PaletteItem(
+            id: "act:new.chat", title: "New Chat",
+            subtitle: nil, icon: "square.and.pencil", category: .action,
+            action: {
+                switchMode(to: .chat)
+                viewModel.newChat()
+            }
+        ))
+
+        // Notebooks
+        for nb in viewModel.notebookViewModel.notebooks {
+            items.append(PaletteItem(
+                id: "nb:\(nb.id)", title: nb.title,
+                subtitle: "Notebook", icon: "book.closed", category: .notebook,
+                action: {
+                    switchMode(to: .notebook)
+                    viewModel.notebookViewModel.selectNotebook(nb.id)
+                }
+            ))
+        }
+
+        // Pages — across every notebook, not just the current one.
+        let notebooksById = Dictionary(
+            uniqueKeysWithValues: viewModel.notebookViewModel.notebooks.map { ($0.id, $0.title) }
+        )
+        for page in viewModel.notebookViewModel.store.listAllPages() {
+            let parent = notebooksById[page.notebookId] ?? "Notebook"
+            items.append(PaletteItem(
+                id: "page:\(page.id)",
+                title: page.title.isEmpty ? "Untitled" : page.title,
+                subtitle: parent,
+                icon: "doc.text",
+                category: .page,
+                action: {
+                    switchMode(to: .notebook)
+                    viewModel.notebookViewModel.openPageAcrossNotebooks(pageId: page.id)
+                }
+            ))
+        }
+
+        // Canvases
+        for canvas in viewModel.canvasViewModel.canvasList {
+            items.append(PaletteItem(
+                id: "canvas:\(canvas.id)",
+                title: canvas.title,
+                subtitle: "Canvas",
+                icon: "rectangle.on.rectangle.angled",
+                category: .canvas,
+                action: {
+                    switchMode(to: .canvas)
+                    viewModel.canvasViewModel.switchCanvas(canvas.id)
+                }
+            ))
+        }
+
+        // Chats
+        for chat in viewModel.chats {
+            items.append(PaletteItem(
+                id: "chat:\(chat.id)",
+                title: chat.title,
+                subtitle: "Chat",
+                icon: "bubble.left.and.text.bubble.right",
+                category: .chat,
+                action: {
+                    switchMode(to: .chat)
+                    viewModel.selectChat(chat.id)
+                }
+            ))
+        }
+
+        return items
+    }
+
+    private func dispatchPaletteItem(_ item: PaletteItem) {
+        viewModel.showPalette = false
+        // Defer to next runloop so the palette teardown animation doesn't
+        // fight the mode-switch animation.
+        DispatchQueue.main.async { item.action() }
+    }
+
 
     private var chatList: some View {
-        let grouped = groupChatsByDate(viewModel.chats)
-        return ScrollView {
-            LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(grouped, id: \.label) { group in
-                    Text(group.label)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(MacbotDS.Colors.textTer)
-                        .textCase(.uppercase)
-                        .padding(.horizontal, MacbotDS.Space.md + MacbotDS.Space.sm)
-                        .padding(.top, group.label == grouped.first?.label ? MacbotDS.Space.xs : MacbotDS.Space.md)
-                        .padding(.bottom, MacbotDS.Space.xs)
-
-                    ForEach(group.chats) { chat in
-                        chatRow(chat)
-                    }
-                }
-            }
-            .padding(.vertical, MacbotDS.Space.xs)
-        }
-    }
-
-    private struct ChatGroup {
-        let label: String
-        let chats: [ChatRecord]
-    }
-
-    private func groupChatsByDate(_ chats: [ChatRecord]) -> [ChatGroup] {
-        let cal = Calendar.current
-        let now = Date()
-        var today: [ChatRecord] = []
-        var thisWeek: [ChatRecord] = []
-        var older: [ChatRecord] = []
-
-        for chat in chats {
-            if cal.isDateInToday(chat.updatedAt) {
-                today.append(chat)
-            } else if let weekAgo = cal.date(byAdding: .day, value: -7, to: now),
-                      chat.updatedAt > weekAgo {
-                thisWeek.append(chat)
-            } else {
-                older.append(chat)
-            }
-        }
-
-        var groups: [ChatGroup] = []
-        if !today.isEmpty { groups.append(ChatGroup(label: "Today", chats: today)) }
-        if !thisWeek.isEmpty { groups.append(ChatGroup(label: "This Week", chats: thisWeek)) }
-        if !older.isEmpty { groups.append(ChatGroup(label: "Older", chats: older)) }
-        return groups
-    }
-
-    // MARK: - Canvas List (sidebar)
-
-    @State private var renamingCanvasId: String?
-    @State private var canvasRenameField: String = ""
-
-    private var canvasList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(viewModel.canvasViewModel.canvasList) { canvas in
-                    let isSelected = viewModel.canvasViewModel.currentCanvasId == canvas.id
-
-                    HStack(spacing: 0) {
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(isSelected ? MacbotDS.Colors.accent : .clear)
-                            .frame(width: 3)
-                            .padding(.vertical, 4)
-
-                        if renamingCanvasId == canvas.id {
-                            TextField("Canvas name", text: $canvasRenameField)
-                                .textFieldStyle(.plain)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(MacbotDS.Colors.textPri)
-                                .padding(.horizontal, MacbotDS.Space.sm)
-                                .padding(.vertical, MacbotDS.Space.sm)
-                                .onSubmit {
-                                    if !canvasRenameField.isEmpty {
-                                        viewModel.canvasViewModel.renameCanvas(canvas.id, title: canvasRenameField)
-                                    }
-                                    renamingCanvasId = nil
-                                }
-                                .onKeyPress(.escape) {
-                                    renamingCanvasId = nil
-                                    return .handled
-                                }
-                        } else {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(canvas.title)
-                                    .font(.caption.weight(isSelected ? .semibold : .regular))
-                                    .foregroundStyle(isSelected ? MacbotDS.Colors.textPri : MacbotDS.Colors.textSec)
-                                    .lineLimit(1)
-
-                                Text("\(viewModel.canvasViewModel.currentCanvasId == canvas.id ? viewModel.canvasViewModel.nodes.count : 0) nodes")
-                                    .font(.caption2)
-                                    .foregroundStyle(MacbotDS.Colors.textTer)
-                            }
-                            .padding(.horizontal, MacbotDS.Space.sm)
-                            .padding(.vertical, MacbotDS.Space.sm)
-                        }
-                    }
-                    .padding(.leading, MacbotDS.Space.sm)
-                    .padding(.trailing, MacbotDS.Space.sm)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(isSelected ? AnyShapeStyle(.fill.secondary) : AnyShapeStyle(.clear))
-                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                    .contentShape(Rectangle())
-                    .onTapGesture { viewModel.canvasViewModel.switchCanvas(canvas.id) }
-                    .padding(.horizontal, MacbotDS.Space.xs)
-                    .contextMenu {
-                        Button("Rename") {
-                            canvasRenameField = canvas.title
-                            renamingCanvasId = canvas.id
-                        }
-                        if viewModel.canvasViewModel.canvasList.count > 1 {
-                            Button("Delete", role: .destructive) {
-                                viewModel.canvasViewModel.deleteCanvas(canvas.id)
-                            }
-                        }
-                    }
+                ForEach(viewModel.chats) { chat in
+                    chatRow(chat)
                 }
             }
             .padding(.vertical, MacbotDS.Space.xs)
         }
-    }
-
-    // MARK: - Rail sidebar (notebook mode)
-
-    /// Narrow icon rail shown in notebook mode so the app-level chrome
-    /// doesn't compete with NotebookView's own notebooks pane. Preserves
-    /// mode switching, sidebar collapse, and new-page entry while freeing
-    /// horizontal space for the editor.
-    private var railSidebar: some View {
-        VStack(spacing: MacbotDS.Space.md) {
-            Button(action: {
-                withAnimation(Motion.snappy) { sidebarCollapsed = true }
-            }) {
-                Image(systemName: "sidebar.left")
-                    .font(.callout)
-                    .foregroundStyle(MacbotDS.Colors.textTer)
-                    .frame(width: 36, height: 28)
-            }
-            .buttonStyle(.plain)
-            .help("Collapse sidebar")
-
-            Divider()
-                .padding(.horizontal, MacbotDS.Space.xs)
-
-            railModeButton(icon: "book.closed", mode: .notebook, help: "Notebook")
-            railModeButton(icon: "rectangle.on.rectangle.angled", mode: .canvas, help: "Canvas")
-            railModeButton(icon: "bubble.left.and.text.bubble.right", mode: .chat, help: "Chat")
-
-            Divider()
-                .padding(.horizontal, MacbotDS.Space.xs)
-
-            Button(action: { viewModel.notebookViewModel.createPageInCurrentNotebook() }) {
-                Image(systemName: "square.and.pencil")
-                    .font(.callout)
-                    .foregroundStyle(MacbotDS.Colors.textSec)
-                    .frame(width: 36, height: 28)
-                    .background(.fill.tertiary)
-                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .help("New Page (⌘J)")
-            .keyboardShortcut(.init("J"), modifiers: .command)
-
-            Spacer()
-        }
-        .padding(.vertical, MacbotDS.Space.md)
-        .frame(maxHeight: .infinity)
-        .background(MacbotDS.Mat.chrome)
-    }
-
-    private func railModeButton(icon: String, mode: ContentMode, help: String) -> some View {
-        let isActive = viewModel.contentMode == mode
-        return Button(action: {
-            withAnimation(Motion.snappy) {
-                if mode == .canvas {
-                    viewModel.refreshCanvasChats()
-                    viewModel.setupCanvas()
-                }
-                if mode == .notebook {
-                    viewModel.setupNotebook()
-                }
-                viewModel.contentMode = mode
-            }
-        }) {
-            Image(systemName: icon)
-                .font(.system(size: 13))
-                .foregroundStyle(isActive ? MacbotDS.Colors.textPri : MacbotDS.Colors.textTer)
-                .frame(width: 36, height: 28)
-                .background(isActive ? AnyShapeStyle(MacbotDS.Mat.chrome) : AnyShapeStyle(.clear))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(isActive ? MacbotDS.Colors.separator.opacity(0.4) : .clear, lineWidth: 0.5)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .shadow(color: isActive ? .black.opacity(0.08) : .clear, radius: 2, y: 1)
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
-
-    // MARK: - Mode cycle helpers (top-bar quick toggle)
-
-    private var nextMode: ContentMode {
-        switch viewModel.contentMode {
-        case .notebook: return .canvas
-        case .canvas:   return .chat
-        case .chat:     return .notebook
-        }
-    }
-
-    private func modeIcon(for mode: ContentMode) -> String {
-        switch mode {
-        case .notebook: return "book.closed"
-        case .canvas:   return "rectangle.on.rectangle.angled"
-        case .chat:     return "bubble.left.and.text.bubble.right"
-        }
-    }
-
-    private func modeLabel(for mode: ContentMode) -> String {
-        switch mode {
-        case .notebook: return "Notebook"
-        case .canvas:   return "Canvas"
-        case .chat:     return "Chat"
-        }
-    }
-
-    private func cycleContentMode() {
-        withAnimation(Motion.snappy) {
-            let target = nextMode
-            switch target {
-            case .canvas:
-                viewModel.refreshCanvasChats()
-                viewModel.setupCanvas()
-            case .notebook:
-                viewModel.setupNotebook()
-            case .chat:
-                break
-            }
-            viewModel.contentMode = target
-        }
-    }
-
-    private func modeButton(_ title: String, icon: String, mode: ContentMode) -> some View {
-        let isActive = viewModel.contentMode == mode
-        return Button(action: {
-            withAnimation(Motion.snappy) {
-                if mode == .canvas {
-                    viewModel.refreshCanvasChats()
-                    viewModel.setupCanvas()
-                }
-                if mode == .notebook {
-                    viewModel.setupNotebook()
-                }
-                viewModel.contentMode = mode
-            }
-        }) {
-            VStack(spacing: 3) {
-                Image(systemName: icon)
-                    .font(.system(size: 13))
-                Text(title)
-                    .font(.system(size: 9, weight: .medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-            }
-            .foregroundStyle(isActive ? MacbotDS.Colors.textPri : MacbotDS.Colors.textTer)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .padding(.horizontal, 2)
-            .background(isActive ? AnyShapeStyle(MacbotDS.Mat.chrome) : AnyShapeStyle(.clear))
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .shadow(color: isActive ? .black.opacity(0.06) : .clear, radius: 2, y: 1)
-        }
-        .buttonStyle(.plain)
-        .help(title)
     }
 
     private func chatRow(_ chat: ChatRecord) -> some View {

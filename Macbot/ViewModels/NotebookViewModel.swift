@@ -122,6 +122,17 @@ final class NotebookViewModel {
         currentContent = page.content
     }
 
+    /// Navigate to a page potentially in a different notebook. Used by the
+    /// command palette's object-first jumps.
+    func openPageAcrossNotebooks(pageId: String) {
+        flushPendingSaves()
+        guard let page = store.getPage(id: pageId) else { return }
+        if currentNotebookId != page.notebookId {
+            selectNotebook(page.notebookId)
+        }
+        loadPage(page.id)
+    }
+
     func deletePage(_ id: String) {
         flushPendingSaves()
         store.deletePage(id: id)

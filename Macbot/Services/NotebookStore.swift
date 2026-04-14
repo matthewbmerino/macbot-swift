@@ -141,6 +141,36 @@ final class NotebookStore {
         }
     }
 
+    /// All pages across every notebook, lightweight summaries. Used by the
+    /// command palette so objects are reachable regardless of which notebook
+    /// is currently open.
+    func listAllPages() -> [PageSummary] {
+        do {
+            return try db.read { db in
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT id, notebookId, title, substr(content, 1, 140) AS preview,
+                           position, updatedAt
+                    FROM pages
+                    ORDER BY updatedAt DESC
+                    LIMIT 500
+                """)
+                return rows.map { row in
+                    PageSummary(
+                        id: row["id"],
+                        notebookId: row["notebookId"],
+                        title: row["title"],
+                        preview: row["preview"] ?? "",
+                        position: row["position"],
+                        updatedAt: row["updatedAt"]
+                    )
+                }
+            }
+        } catch {
+            Log.app.error("[notebook] listAllPages failed: \(error)")
+            return []
+        }
+    }
+
     func getPage(id: String) -> PageRecord? {
         do {
             return try db.read { db in

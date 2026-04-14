@@ -1601,10 +1601,8 @@ struct CanvasView: View {
 
     private var primaryToolbar: some View {
         HStack(spacing: MacbotDS.Space.sm) {
-            // Quick Add — split button with type presets
+            // Creation cluster
             quickAddButton
-
-            // Edge mode toggle
             toolbarToggle("point.forward.to.point.capsulepath.fill",
                           help: "Edge Mode (E)",
                           isActive: viewModel.edgeModeActive) {
@@ -1613,13 +1611,11 @@ struct CanvasView: View {
 
             Divider().frame(height: 18)
 
-            // Execute — zero-prompt AI, just do what the note says
-            toolbarToggle("bolt.fill", help: "Execute (Cmd+Return)",
-                          isActive: false) {
-                executeSelectedNodes()
-            }
-            .disabled(viewModel.selectedIds.isEmpty || viewModel.isProcessingAI)
+            // Primary action — Execute. Labeled and accent-colored so the
+            // commit-work verb reads as the loudest pixel.
+            executePrimaryButton
 
+            // Secondary actions — AI prompt, chat browser.
             toolbarButton("sparkles", help: "Ask AI (/)") {
                 withAnimation(Motion.snappy) { showAIBar.toggle() }
             }
@@ -1631,43 +1627,13 @@ struct CanvasView: View {
 
             Divider().frame(height: 18)
 
-            // Zoom controls
-            toolbarButton("minus.magnifyingglass", help: "Zoom Out (-)") {
-                withAnimation(Motion.snappy) { viewModel.zoom(by: 0.8, anchor: viewCenter) }
-            }
+            // View cluster — zoom, fit, minimap grouped in a sub-capsule so
+            // they visually read as "one control for viewing" rather than
+            // four independent controls.
+            viewCluster
 
-            Button(action: {
-                withAnimation(Motion.smooth) {
-                    viewModel.offset = .zero
-                    viewModel.lastCommittedOffset = .zero
-                    viewModel.scale = 1.0
-                    viewModel.lastCommittedScale = 1.0
-                }
-            }) {
-                Text("\(Int(viewModel.scale * 100))%")
-                    .font(MacbotDS.Typo.detail)
-                    .foregroundStyle(MacbotDS.Colors.textSec)
-                    .monospacedDigit()
-                    .frame(width: 40)
-            }
-            .buttonStyle(.plain)
-            .help("Reset zoom (Cmd+0)")
-
-            toolbarButton("plus.magnifyingglass", help: "Zoom In (+)") {
-                withAnimation(Motion.snappy) { viewModel.zoom(by: 1.25, anchor: viewCenter) }
-            }
-
-            toolbarButton("arrow.up.left.and.arrow.down.right", help: "Zoom to Fit (Cmd+1)") {
-                withAnimation(Motion.smooth) { viewModel.zoomToFit() }
-            }
-
-            Divider().frame(height: 18)
-
-            toolbarToggle("map", help: "Minimap (M)",
-                          isActive: viewModel.showMinimap) {
-                withAnimation(Motion.snappy) { viewModel.showMinimap.toggle() }
-            }
-
+            // Trailing inspector toggle — sits outside the view cluster
+            // because it opens a side panel, not a viewport change.
             toolbarToggle("sparkle.magnifyingglass", help: "Related Nodes",
                           isActive: viewModel.showInspector) {
                 withAnimation(Motion.snappy) { viewModel.showInspector.toggle() }
@@ -1679,6 +1645,97 @@ struct CanvasView: View {
         .clipShape(Capsule())
         .overlay(Capsule().stroke(MacbotDS.Colors.separator, lineWidth: 0.5))
         .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
+    }
+
+    private var executePrimaryButton: some View {
+        Button(action: executeSelectedNodes) {
+            HStack(spacing: MacbotDS.Space.xs) {
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Run")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(MacbotDS.Colors.accent)
+            .padding(.horizontal, MacbotDS.Space.sm + 2)
+            .padding(.vertical, 5)
+            .background(MacbotDS.Colors.accent.opacity(0.18))
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(MacbotDS.Colors.accent.opacity(0.35), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .help("Execute selected nodes (⌘↩)")
+        .disabled(viewModel.selectedIds.isEmpty || viewModel.isProcessingAI)
+        .opacity((viewModel.selectedIds.isEmpty || viewModel.isProcessingAI) ? 0.5 : 1)
+    }
+
+    private var viewCluster: some View {
+        HStack(spacing: 2) {
+            Button(action: {
+                withAnimation(Motion.snappy) { viewModel.zoom(by: 0.8, anchor: viewCenter) }
+            }) {
+                Image(systemName: "minus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(MacbotDS.Colors.textSec)
+                    .frame(width: 24, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help("Zoom Out (-)")
+
+            Button(action: {
+                withAnimation(Motion.smooth) {
+                    viewModel.offset = .zero
+                    viewModel.lastCommittedOffset = .zero
+                    viewModel.scale = 1.0
+                    viewModel.lastCommittedScale = 1.0
+                }
+            }) {
+                Text("\(Int(viewModel.scale * 100))%")
+                    .font(MacbotDS.Typo.detail.monospacedDigit())
+                    .foregroundStyle(MacbotDS.Colors.textSec)
+                    .frame(width: 36, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help("Reset zoom (⌘0)")
+
+            Button(action: {
+                withAnimation(Motion.snappy) { viewModel.zoom(by: 1.25, anchor: viewCenter) }
+            }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(MacbotDS.Colors.textSec)
+                    .frame(width: 24, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help("Zoom In (+)")
+
+            Rectangle()
+                .fill(MacbotDS.Colors.separator.opacity(0.5))
+                .frame(width: 0.5, height: 14)
+
+            Button(action: { withAnimation(Motion.smooth) { viewModel.zoomToFit() } }) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(MacbotDS.Colors.textSec)
+                    .frame(width: 24, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help("Zoom to Fit (⌘1)")
+
+            Button(action: {
+                withAnimation(Motion.snappy) { viewModel.showMinimap.toggle() }
+            }) {
+                Image(systemName: "map")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(viewModel.showMinimap ? MacbotDS.Colors.accent : MacbotDS.Colors.textSec)
+                    .frame(width: 24, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help("Minimap (M)")
+        }
+        .padding(.horizontal, 3)
+        .padding(.vertical, 2)
+        .background(.fill.quaternary)
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
     // MARK: - Contextual Selection Bar
