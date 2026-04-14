@@ -53,6 +53,7 @@ final class CanvasScrollNSView: NSView {
     private var spaceDownMonitor: Any?
     private var spaceUpMonitor: Any?
     private var deleteKeyMonitor: Any?
+    private var scrollMonitor: Any?
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
@@ -62,9 +63,63 @@ final class CanvasScrollNSView: NSView {
         if window != nil {
             installSpacebarMonitor()
             installDeleteKeyMonitor()
+            installScrollMonitor()
         } else {
             removeSpacebarMonitor()
             removeDeleteKeyMonitor()
+            removeScrollMonitor()
+        }
+    }
+
+    /// Intercept scroll events at the NSEvent level so they work regardless
+    /// of what SwiftUI view the cursor is over. hitTest-based routing was
+    /// unreliable — cards sitting above the handler in the SwiftUI ZStack
+    /// could block scroll events from reaching the handler even when it
+    /// lived in an overlay. The monitor always gets the event first; we
+    /// handle it only when the cursor is inside this view's bounds and no
+    /// text field has focus.
+    private func installScrollMonitor() {
+        removeScrollMonitor()
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self, let window = self.window else { return event }
+            // Only intercept events inside our frame, within our window.
+            guard event.window === window else { return event }
+            let locationInView = self.convert(event.locationInWindow, from: nil)
+            guard self.bounds.contains(locationInView) else { return event }
+            // If a text field is focused, let the text field handle it
+            // (e.g. scroll inside a multi-line editor).
+            if self.isFirstResponderTextField() { return event }
+            self.handleScroll(event, locationInView: locationInView)
+            return nil // consume
+        }
+    }
+
+    private func removeScrollMonitor() {
+        if let m = scrollMonitor { NSEvent.removeMonitor(m); scrollMonitor = nil }
+    }
+
+    private func handleScroll(_ event: NSEvent, locationInView: NSPoint) {
+        let cmdHeld = event.modifierFlags.contains(.command)
+        if cmdHeld {
+            let zoomDelta = event.scrollingDeltaY
+            let factor: CGFloat
+            if event.hasPreciseScrollingDeltas {
+                factor = 1.0 + zoomDelta * 0.008
+            } else {
+                factor = zoomDelta > 0 ? 1.15 : 0.87
+            }
+            onZoom?(factor, locationInView, !event.hasPreciseScrollingDeltas)
+        } else {
+            let dx: CGFloat
+            let dy: CGFloat
+            if event.hasPreciseScrollingDeltas {
+                dx = event.scrollingDeltaX
+                dy = event.scrollingDeltaY
+            } else {
+                dx = event.scrollingDeltaX * 8
+                dy = event.scrollingDeltaY * 8
+            }
+            onPan?(dx, dy)
         }
     }
 
@@ -155,6 +210,7 @@ final class CanvasScrollNSView: NSView {
     deinit {
         removeSpacebarMonitor()
         removeDeleteKeyMonitor()
+        removeScrollMonitor()
     }
 
     override func scrollWheel(with event: NSEvent) {
