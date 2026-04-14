@@ -244,6 +244,13 @@ struct CanvasNodeView: View {
                 case .manual: EmptyView()
                 }
             }
+
+            // Inline processing footer — replaces the old overlay badges
+            // that used to cover the card's text. Reserved space at the
+            // bottom of the card so the content above it stays readable.
+            if isAIStreaming || isProcessingSource {
+                processingFooter
+            }
         }
         .padding(MacbotDS.Space.md)
         .frame(width: node.width)
@@ -259,8 +266,11 @@ struct CanvasNodeView: View {
             y: isSelected ? 2 : 3
         )
         .overlay(alignment: .topTrailing) {
-            // Single execute button on hover — defaults to expand mode
-            if isHovered && !isEditing && !isAIStreaming && !node.text.isEmpty && node.widgetState != .loading {
+            // Single execute button on hover — hidden during any processing
+            // state (either this card is being written into, or it's feeding
+            // another AI op) because re-triggering is ambiguous mid-flight.
+            if isHovered && !isEditing && !isAIStreaming && !isProcessingSource
+                && !node.text.isEmpty && node.widgetState != .loading {
                 Button(action: onExecute) {
                     Image(systemName: "bolt.fill")
                         .font(.system(size: 10))
@@ -284,22 +294,29 @@ struct CanvasNodeView: View {
                     .transition(.opacity)
             }
         }
-        .overlay(alignment: .topTrailing) {
-            if isAIStreaming {
-                ProcessingBadge(label: "Processing...")
-                    .padding(.trailing, MacbotDS.Space.sm)
-                    .padding(.top, MacbotDS.Space.sm)
-                    .transition(.opacity)
+    }
+
+    /// Inline processing row shown at the bottom of the card whenever the
+    /// node is participating in an in-flight AI action. Replaces the old
+    /// absolute-positioned ProcessingBadge overlays which could cover the
+    /// card's own text. A subtle divider + pulsing dot + short label; the
+    /// card's border also pulses accent-colored (see `borderColor`).
+    @ViewBuilder
+    private var processingFooter: some View {
+        let label: String = isAIStreaming ? "Generating" : "Thinking"
+        VStack(spacing: 0) {
+            Divider()
+                .opacity(0.3)
+            HStack(spacing: MacbotDS.Space.xs) {
+                ProcessingDot()
+                Text(label)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(MacbotDS.Colors.accent)
+                Spacer()
             }
+            .padding(.top, MacbotDS.Space.xs)
         }
-        .overlay(alignment: .bottomTrailing) {
-            if isProcessingSource {
-                ProcessingBadge(label: "Thinking...")
-                    .padding(.trailing, MacbotDS.Space.sm)
-                    .padding(.bottom, MacbotDS.Space.sm)
-                    .transition(.opacity)
-            }
-        }
+        .transition(.opacity)
     }
 
     @ViewBuilder
@@ -545,20 +562,31 @@ private struct ContentHeightPreferenceKey: PreferenceKey {
     }
 }
 
-// MARK: - Processing Badge
+// MARK: - Processing indicators
 
-private struct ProcessingBadge: View {
-    let label: String
+/// Small pulsing accent dot — used inline by the processing footer and by
+/// the legacy ProcessingBadge (still exported in case other call sites use
+/// it). Extracted as its own View so the state-driven animation has a
+/// stable identity and doesn't restart on parent re-renders.
+struct ProcessingDot: View {
     @State private var dotOpacity: Double = 1.0
 
     var body: some View {
+        Circle()
+            .fill(MacbotDS.Colors.accent)
+            .frame(width: 5, height: 5)
+            .opacity(dotOpacity)
+            .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: dotOpacity)
+            .onAppear { dotOpacity = 0.3 }
+    }
+}
+
+private struct ProcessingBadge: View {
+    let label: String
+
+    var body: some View {
         HStack(spacing: MacbotDS.Space.xs) {
-            Circle()
-                .fill(MacbotDS.Colors.accent)
-                .frame(width: 5, height: 5)
-                .opacity(dotOpacity)
-                .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: dotOpacity)
-                .onAppear { dotOpacity = 0.3 }
+            ProcessingDot()
             Text(label)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(MacbotDS.Colors.accent)
