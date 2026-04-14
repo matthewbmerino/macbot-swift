@@ -34,47 +34,40 @@ struct ChatView: View {
         }
         .overlay(alignment: .topLeading) {
             if sidebarCollapsed {
-                HStack(spacing: MacbotDS.Space.xs) {
-                    Button(action: {
-                        withAnimation(Motion.snappy) { sidebarCollapsed = false }
-                    }) {
-                        Image(systemName: "sidebar.left")
-                            .font(.caption)
-                            .foregroundStyle(MacbotDS.Colors.textSec)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Show sidebar")
-
-                    Divider().frame(height: 14)
-
-                    // Quick cycle through the three modes. Clicking advances
-                    // notebook → canvas → chat → notebook…
-                    Button(action: cycleContentMode) {
-                        HStack(spacing: MacbotDS.Space.xs) {
-                            Image(systemName: modeIcon(for: nextMode))
-                                .font(.system(size: 10))
-                            Text(modeLabel(for: nextMode))
-                                .font(.system(size: 11, weight: .medium))
-                        }
+                // Just the sidebar-expand button — small footprint so it
+                // doesn't cover content in notebook/chat modes. Mode cycle
+                // moved to a hidden keyboard shortcut (⌘⇧J) below so the
+                // pill isn't needed for that.
+                Button(action: {
+                    withAnimation(Motion.snappy) { sidebarCollapsed = false }
+                }) {
+                    Image(systemName: "sidebar.left")
+                        .font(.caption)
                         .foregroundStyle(MacbotDS.Colors.textSec)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Switch to \(modeLabel(for: nextMode))")
-                    .keyboardShortcut(.init("J"), modifiers: [.command, .shift])
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(MacbotDS.Mat.chrome)
+                        .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
+                                .stroke(MacbotDS.Colors.separator.opacity(0.3), lineWidth: 0.5)
+                        )
+                        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(MacbotDS.Mat.chrome)
-                .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
-                        .stroke(MacbotDS.Colors.separator.opacity(0.3), lineWidth: 0.5)
-                )
-                .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+                .buttonStyle(.plain)
+                .help("Show sidebar")
                 .padding(MacbotDS.Space.sm)
                 .transition(.opacity)
             }
         }
+        .background(
+            // Invisible 0×0 button carries the ⌘⇧J mode-cycle shortcut so
+            // it works whether the sidebar is collapsed or not.
+            Button("") { cycleContentMode() }
+                .keyboardShortcut(.init("J"), modifiers: [.command, .shift])
+                .frame(width: 0, height: 0)
+                .hidden()
+        )
         .background(MacbotDS.Colors.bg)
         .frame(minWidth: 700, minHeight: 520)
         .onAppear {
