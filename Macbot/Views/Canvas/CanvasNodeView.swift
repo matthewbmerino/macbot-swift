@@ -263,8 +263,9 @@ struct CanvasNodeView: View {
             }
         }
         .overlay(alignment: .trailing) {
-            // Connector port — appears on hover, drag to create edge
-            if isHovered && !isEditing {
+            // Connector port — drag to create edge. Only appears when the
+            // node is selected (not on every hover) to avoid visual noise.
+            if isSelected && !isEditing {
                 ConnectorPort(onStartEdge: onStartEdge)
                     .transition(.opacity)
             }
