@@ -13,6 +13,18 @@ extension CanvasViewModel {
         scheduleSave()
     }
 
+    /// Create a node pre-filled with text and leave it non-editing (so the
+    /// user can immediately keep adding or navigate away without dismissing
+    /// an open editor). Used by the canvas landing's capture input.
+    func addNote(text: String, at canvasPoint: CGPoint, color: CanvasNode.NodeColor = .note) {
+        pushUndo()
+        var node = CanvasNode(position: canvasPoint, color: color)
+        node.text = text
+        nodes.append(node)
+        selectedIds = [node.id]
+        scheduleSave()
+    }
+
     func addChatNode(
         at canvasPoint: CGPoint,
         content: String,

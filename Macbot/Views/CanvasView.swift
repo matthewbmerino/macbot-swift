@@ -2210,132 +2210,140 @@ struct CanvasView: View {
 
     // MARK: - Canvas Landing
 
-    @State private var landingBreathScale: CGFloat = 1.0
     @State private var landingHintsVisible: Bool = false
     @State private var landingTitleVisible: Bool = false
+    @State private var landingCaptureText: String = ""
+    @FocusState private var landingInputFocused: Bool
 
+    /// Empty-canvas landing — chat-inspired: one quiet greeting, one focused
+    /// capture input. The input's chrome mirrors the chat composer exactly
+    /// (Material, Capsule, thin stroke, subtle shadow) so the canvas
+    /// "starts like a conversation." Typing and pressing Return drops the
+    /// first note at canvas center and dismisses the landing.
     private var canvasLanding: some View {
         VStack(spacing: 0) {
             Spacer()
 
             VStack(spacing: MacbotDS.Space.xl) {
-                // Animated icon
-                ZStack {
-                    // Outer glow ring
-                    Circle()
-                        .stroke(MacbotDS.Colors.accent.opacity(0.15), lineWidth: 1.5)
-                        .frame(width: 100, height: 100)
-                        .scaleEffect(landingBreathScale * 1.15)
+                Text("What's on your mind?")
+                    .font(.system(size: 22, weight: .medium, design: .rounded))
+                    .foregroundStyle(MacbotDS.Colors.textPri.opacity(0.85))
+                    .opacity(landingTitleVisible ? 1 : 0)
+                    .offset(y: landingTitleVisible ? 0 : 6)
 
-                    Circle()
-                        .fill(MacbotDS.Colors.accent.opacity(0.06))
-                        .frame(width: 80, height: 80)
-                        .scaleEffect(landingBreathScale)
+                landingCaptureInput
+                    .frame(maxWidth: 560)
+                    .opacity(landingTitleVisible ? 1 : 0)
+                    .offset(y: landingTitleVisible ? 0 : 10)
 
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 30, weight: .light))
-                        .foregroundStyle(MacbotDS.Colors.accent.opacity(0.7))
-                        .scaleEffect(landingBreathScale)
+                HStack(spacing: MacbotDS.Space.md) {
+                    captureHint(key: "↩", label: "Place on canvas")
+                    Text("·")
+                        .font(.caption2)
+                        .foregroundStyle(MacbotDS.Colors.textTer.opacity(0.5))
+                    captureHint(key: "⌘K", label: "Open anything")
                 }
-                .opacity(landingTitleVisible ? 1 : 0)
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                        landingBreathScale = 1.06
-                    }
-                }
-
-                // Title
-                VStack(spacing: MacbotDS.Space.sm) {
-                    Text("Your canvas is ready")
-                        .font(.system(size: 22, weight: .medium, design: .rounded))
-                        .foregroundStyle(MacbotDS.Colors.textPri.opacity(0.85))
-
-                    Text("A workspace for thinking, researching, and connecting ideas.")
-                        .font(.system(size: 13))
-                        .foregroundStyle(MacbotDS.Colors.textTer)
-                }
-                .opacity(landingTitleVisible ? 1 : 0)
-                .offset(y: landingTitleVisible ? 0 : 8)
-
-                // Action hints
-                VStack(spacing: MacbotDS.Space.md) {
-                    landingHint(icon: "plus.circle", key: "Double-click", label: "Create a note")
-                    landingHint(icon: "bolt.fill", key: "Cmd + Return", label: "Execute with AI — creates a knowledge graph")
-                    landingHint(icon: "questionmark.circle", key: "?", label: "View all keyboard shortcuts")
-                }
-                .opacity(landingHintsVisible ? 1 : 0)
-                .offset(y: landingHintsVisible ? 0 : 12)
-
-                // Start button
-                Button(action: {
-                    viewModel.dismissLanding()
-                    // Create a starter note at center
-                    let center = viewModel.viewToCanvas(viewCenter)
-                    withAnimation(Motion.snappy) {
-                        viewModel.addNode(at: center, color: .note)
-                    }
-                }) {
-                    HStack(spacing: MacbotDS.Space.sm) {
-                        Image(systemName: "rectangle.and.pencil.and.ellipsis")
-                            .font(.system(size: 12))
-                        Text("Start Writing")
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                    .foregroundStyle(MacbotDS.Colors.accent)
-                    .padding(.horizontal, MacbotDS.Space.lg)
-                    .padding(.vertical, MacbotDS.Space.md)
-                    .background(MacbotDS.Colors.accent.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: MacbotDS.Radius.sm, style: .continuous)
-                            .stroke(MacbotDS.Colors.accent.opacity(0.2), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .opacity(landingHintsVisible ? 1 : 0)
-
-                // Privacy
-                HStack(spacing: MacbotDS.Space.xs) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 8))
-                    Text("Everything runs locally on this Mac")
-                        .font(.system(size: 11))
-                }
-                .foregroundStyle(MacbotDS.Colors.textTer.opacity(0.5))
                 .opacity(landingHintsVisible ? 1 : 0)
             }
+            .padding(.horizontal, MacbotDS.Space.xl)
 
             Spacer()
+
+            HStack(spacing: MacbotDS.Space.xs) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 8))
+                Text("Everything runs locally on this Mac")
+                    .font(.system(size: 11))
+            }
+            .foregroundStyle(MacbotDS.Colors.textTer.opacity(0.45))
+            .padding(.bottom, MacbotDS.Space.xl)
+            .opacity(landingHintsVisible ? 1 : 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MacbotDS.Colors.bg)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.6)) { landingTitleVisible = true }
-            withAnimation(.easeOut(duration: 0.6).delay(0.3)) { landingHintsVisible = true }
-        }
-        .onTapGesture(count: 2) { _ in
-            // Double-click through to create a node
-            viewModel.dismissLanding()
-            let center = viewModel.viewToCanvas(viewCenter)
-            withAnimation(Motion.snappy) { viewModel.addNode(at: center, color: .note) }
+            withAnimation(.easeOut(duration: 0.55)) { landingTitleVisible = true }
+            withAnimation(.easeOut(duration: 0.55).delay(0.25)) { landingHintsVisible = true }
         }
     }
 
-    private func landingHint(icon: String, key: String, label: String) -> some View {
-        HStack(spacing: MacbotDS.Space.md) {
-            Image(systemName: icon)
-                .font(.system(size: 13))
-                .foregroundStyle(MacbotDS.Colors.accent.opacity(0.6))
-                .frame(width: 20)
-
-            Text(key)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(MacbotDS.Colors.textSec)
-                .frame(width: 130, alignment: .leading)
-
-            Text(label)
-                .font(.system(size: 12))
+    private var landingCaptureInput: some View {
+        HStack(spacing: MacbotDS.Space.sm) {
+            Image(systemName: "sparkles")
+                .font(.callout)
                 .foregroundStyle(MacbotDS.Colors.textTer)
+
+            TextField("Capture a thought…", text: $landingCaptureText, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.subheadline)
+                .foregroundStyle(MacbotDS.Colors.textPri)
+                .lineLimit(1...6)
+                .focused($landingInputFocused)
+                .onSubmit(submitLandingCapture)
+                .onKeyPress(.return) {
+                    // `onSubmit` handles plain Return; intercept Shift+Return
+                    // so the multi-line axis grows instead of submitting.
+                    if NSEvent.modifierFlags.contains(.shift) { return .ignored }
+                    submitLandingCapture()
+                    return .handled
+                }
+
+            if !landingCaptureText.isEmpty {
+                Button(action: submitLandingCapture) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(MacbotDS.Colors.accent)
+                }
+                .buttonStyle(.plain)
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, MacbotDS.Space.md)
+        .padding(.vertical, MacbotDS.Space.md)
+        .background(MacbotDS.Mat.chrome)
+        .clipShape(Capsule())
+        .overlay(
+            Capsule().stroke(MacbotDS.Colors.separator.opacity(0.5), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
+        .onTapGesture { landingInputFocused = true }
+        .onAppear {
+            // Small delay so the entrance animation finishes before focus
+            // claims the caret — avoids a jarring flicker on first render.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                landingInputFocused = true
+            }
+        }
+    }
+
+    private func captureHint(key: String, label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(key)
+                .font(.caption2.weight(.medium).monospaced())
+                .foregroundStyle(MacbotDS.Colors.textSec)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(.fill.tertiary)
+                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(MacbotDS.Colors.textTer)
+        }
+    }
+
+    private func submitLandingCapture() {
+        let trimmed = landingCaptureText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let center = viewModel.viewToCanvas(viewCenter)
+        if trimmed.isEmpty {
+            // Empty submit just dismisses and opens a blank note for editing.
+            viewModel.dismissLanding()
+            withAnimation(Motion.snappy) { viewModel.addNode(at: center, color: .note) }
+        } else {
+            viewModel.dismissLanding()
+            withAnimation(Motion.snappy) {
+                viewModel.addNote(text: trimmed, at: center, color: .note)
+            }
+            landingCaptureText = ""
         }
     }
 
